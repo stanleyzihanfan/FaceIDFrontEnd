@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════════╗
+  ║           FACE BROWSER — GITHUB PAGES FRONTEND  (index.html)               ║
+  ║                                                                              ║
+  ║  Host this file on any GitHub Pages repo (or serve locally).               ║
+  ║  It communicates with the Colab Flask server via the Cloudflare tunnel URL ║
+  ║  you copy from the Colab output.                                            ║
+  ║                                                                              ║
+  ║  Usage                                                                       ║
+  ║  ─────                                                                       ║
+  ║  1. Run colab_face_server.py in Google Colab.                               ║
+  ║  2. Copy the *.trycloudflare.com URL it prints.                             ║
+  ║  3. Paste it into the "API Endpoint" box on this page and click Connect.    ║
+  ║  4. Upload a photo — detected faces appear in the viewer.                   ║
+  ║  5. Navigate, add to the face database, or identify faces.                  ║
+  ╚══════════════════════════════════════════════════════════════════════════════╝
+-->
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Face Browser</title>
+
+<!-- ── Google Fonts: Syne (display) + DM Mono (code/labels) ──────────────── -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Design language: dark, industrial-terminal aesthetic.
+   Neon cyan (#00ffcc) as the single accent — mirrors the Colab box highlights.
+   Heavy Syne headings + DM Mono for all code / data values.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:          #0a0c10;
+  --surface:     #12161e;
+  --surface2:    #1a1f2b;
+  --border:      #252b38;
+  --accent:      #00ffcc;
+  --accent-dim:  #00b89a;
+  --danger:      #ff4444;
+  --text:        #d4dbe8;
+  --text-muted:  #5a6478;
+  --font-head:   'Syne', sans-serif;
+  --font-mono:   'DM Mono', monospace;
+  --radius:      6px;
+  --transition:  0.18s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  /* Subtle scanline texture for the terminal feel */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,204,0.015) 2px,
+    rgba(0,255,204,0.015) 4px
+  );
+}
+
+/* ── Page shell ─────────────────────────────────────────────────────────── */
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 36px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+}
+
+header h1 {
+  font-family: var(--font-head);
+  font-size: clamp(22px, 4vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #fff;
+}
+
+/* Glowing accent word */
+header h1 span {
+  color: var(--accent);
+  text-shadow: 0 0 18px rgba(0,255,204,0.45);
+}
+
+header p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Card component ─────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+/* ── Step badge ─────────────────────────────────────────────────────────── */
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 11px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Form controls ──────────────────────────────────────────────────────── */
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+input[type="text"], input[type="url"] {
+  flex: 1;
+  min-width: 200px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+input[type="text"]:focus, input[type="url"]:focus {
+  border-color: var(--accent);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: opacity var(--transition), transform var(--transition),
+              box-shadow var(--transition);
+  user-select: none;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(0,255,204,0.4);
+}
+
+.btn-purple {
+  background: #6610f2;
+  color: #fff;
+}
+.btn-purple:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(102,16,242,0.45);
+}
+
+.btn-green {
+  background: #198754;
+  color: #fff;
+}
+.btn-green:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(25,135,84,0.45);
+}
+
+.btn-nav {
+  background: #0d6efd;
+  color: #fff;
+  padding: 9px 22px;
+}
+.btn-nav:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(13,110,253,0.45);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+/* ── Status pill ────────────────────────────────────────────────────────── */
+.status-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+.pill-ok      { background: rgba(25,135,84,0.2);  color: #2dce89; border: 1px solid #198754; }
+.pill-err     { background: rgba(255,68,68,0.15); color: #ff4444; border: 1px solid #ff4444; }
+.pill-neutral { background: var(--surface2);      color: var(--text-muted); border: 1px solid var(--border); }
+
+/* ── Main viewer layout ─────────────────────────────────────────────────── */
+#viewer {
+  display: none;   /* hidden until an image is successfully uploaded */
+}
+
+#viewer-inner {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* ── Image display area ─────────────────────────────────────────────────── */
+#image-wrap {
+  position: relative;
+  flex: 1 1 300px;
+  max-width: 900px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+#main-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Invisible click overlay — same size as image, captures mouse events */
+#click-overlay {
+  position: absolute;
+  inset: 0;
+  /* data attributes are set by JS after we know image dims */
+}
+
+/* ── Side panel ─────────────────────────────────────────────────────────── */
+#side-panel {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#thumb-img {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 16px rgba(0,255,204,0.25);
+}
+
+/* Face counter */
+#face-counter {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+#face-counter strong { color: var(--accent); }
+
+/* ── Result / log area ──────────────────────────────────────────────────── */
+#result-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  min-height: 60px;
+  color: var(--text);
+}
+
+/* ── Navigation row ─────────────────────────────────────────────────────── */
+#nav-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Upload drop-zone ───────────────────────────────────────────────────── */
+#drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+  color: var(--text-muted);
+}
+#drop-zone:hover, #drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(0,255,204,0.04);
+  color: var(--text);
+}
+#drop-zone input { display: none; }
+#drop-zone svg { margin-bottom: 10px; }
+
+/* ── Loading spinner overlay ────────────────────────────────────────────── */
+#loading {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(10,12,16,0.75);
+  backdrop-filter: blur(4px);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+}
+#loading.active { display: flex; }
+
+.spinner {
+  width: 44px; height: 44px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#loading p {
+  font-family: var(--font-head);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+/* ── Notification toast ─────────────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-size: 13px;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 1000;
+  max-width: 320px;
+}
+#toast.show { transform: translateY(0); opacity: 1; }
+
+/* ── Add-to-DB inline name input ────────────────────────────────────────── */
+#db-name-row {
+  display: none;   /* revealed when "Add to DB" is clicked */
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#db-name-row.visible { display: flex; }
+
+/* ── Responsive: stack panels on small screens ──────────────────────────── */
+@media (max-width: 680px) {
+  #viewer-inner { flex-direction: column; }
+  #side-panel   { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; }
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       HEADER
+       ════════════════════════════════════════════════════════════════════ -->
+  <header>
+    <h1>🔍 Face <span>Browser</span></h1>
+    <p>Powered by DeepFace · MTCNN · Colab + Cloudflare</p>
+  </header>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       STEP 1 — Connect to the Colab API server
+       The user pastes the trycloudflare.com URL from their Colab output.
+       "Connect" pings /api/health to verify the server is reachable.
+       ════════════════════════════════════════════════════════════════════ -->
+  <div class="card" id="connect-card">
+    <div class="card-title">
+      <span class="step-badge">1</span>Connect to Colab Server
+    </div>
+    <div class="row">
+      <input
+        type="url"
+        id="api-url-input"
+        placeholder="https://xxxx-xxxx.trycloudflare.com"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <button class="btn btn-primary" id="btn-connect">Connect</button>
+    </div>
+    <div style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+      <span id="conn-status" class="status-pill pill-neutral">Not connected</span>
+      <span id="conn-msg" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       STEP 2 — Upload image
+       The image is POSTed as multipart/form-data to /api/upload.
+       The server responds with the annotated frame + face metadata.
+       ════════════════════════════════════════════════════════════════════ -->
+  <div class="card" id="upload-card" style="display:none">
+    <div class="card-title">
+      <span class="step-badge">2</span>Upload Image
+    </div>
+
+    <!-- Drag-and-drop zone; clicking also triggers the hidden file input -->
+    <div id="drop-zone">
+      <!-- Upload icon SVG -->
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+           stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"
+           stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Drag &amp; drop a photo here, or <u>click to browse</u></p>
+      <p style="font-size:11px;margin-top:6px">JPEG · PNG · WEBP · up to ~20 MB</p>
+      <input type="file" id="file-input" accept="image/*" />
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       STEP 3 — Face viewer (hidden until an image is processed)
+       ════════════════════════════════════════════════════════════════════ -->
+  <div id="viewer" class="card">
+    <div class="card-title">
+      <span class="step-badge">3</span>Browse Detected Faces
+    </div>
+
+    <div id="viewer-inner">
+
+      <!-- ── Main annotated image with click overlay ───────────────────── -->
+      <!--
+        #image-wrap is position:relative.
+        #main-img shows the annotated PNG returned by the server.
+        #click-overlay sits on top and captures click coordinates;
+        JS translates the click position into a face index and calls /api/select.
+      -->
+      <div id="image-wrap">
+        <img id="main-img" alt="Annotated photo" />
+        <canvas id="click-overlay"></canvas>
+      </div>
+
+      <!-- ── Side panel: thumbnail, controls, results ──────────────────── -->
+      <div id="side-panel">
+        <div class="card-title" style="margin-bottom:4px">Selected face</div>
+
+        <!-- Thumbnail of the currently selected face -->
+        <img id="thumb-img" alt="Face thumbnail" />
+
+        <!-- Face navigation counter: "Face 2 / 5 · conf 0.98" -->
+        <div id="face-counter">–</div>
+
+        <!-- Prev / Next navigation buttons -->
+        <div id="nav-row">
+          <button class="btn btn-nav" id="btn-prev" disabled>◀ Prev</button>
+          <button class="btn btn-nav" id="btn-next" disabled>Next ▶</button>
+        </div>
+
+        <!-- ── Add to DB flow ──────────────────────────────────────────── -->
+        <!--
+          First click reveals the name input (#db-name-row).
+          Second click (or pressing Enter) sends the face to /api/add_to_db.
+        -->
+        <button class="btn btn-green" id="btn-add-db" style="width:100%">
+          + Add to DB
+        </button>
+
+        <div id="db-name-row">
+          <input type="text" id="db-name-input"
+                 placeholder="Person's name…" style="flex:1" />
+          <button class="btn btn-green" id="btn-confirm-add">Save</button>
+          <button class="btn btn-danger" id="btn-cancel-add">✕</button>
+        </div>
+
+        <!-- ── Identify button ─────────────────────────────────────────── -->
+        <!--
+          Sends the current face to /api/identify.
+          The server embeds the face and finds the closest cosine-similarity
+          match in FACE_DB, returning the label and score.
+        -->
+        <button class="btn btn-purple" id="btn-identify" style="width:100%">
+          🔍 Identify
+        </button>
+
+        <!-- Result log: multi-line output from add/identify actions -->
+        <div id="result-box">Results will appear here…</div>
+      </div>
+
+    </div><!-- /viewer-inner -->
+  </div><!-- /viewer -->
+
+</div><!-- /app -->
+
+
+<!-- ── Full-screen loading overlay ────────────────────────────────────────── -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Processing…</p>
+</div>
+
+<!-- ── Toast notification ─────────────────────────────────────────────────── -->
+<div id="toast" id="toast"></div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     All API communication lives here.  No build step required.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+"use strict";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State — the single source of truth for the current session
+// ─────────────────────────────────────────────────────────────────────────────
+
+const state = {
+  apiBase:     "",          // trycloudflare.com base URL (no trailing slash)
+  sessionId:   null,        // UUID assigned by the server after upload
+  faceCount:   0,           // total detected faces in the current image
+  currentIdx:  0,           // 0-based index of the selected face
+  faceAreas:   [],          // [{ x, y, w, h }, …] in DISPLAY-image pixels
+  dispW:       0,           // display image width  (px)
+  dispH:       0,           // display image height (px)
+  busy:        false,       // prevents duplicate in-flight requests
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOM references — cached once at startup for performance
+// ─────────────────────────────────────────────────────────────────────────────
+
+const $  = (id) => document.getElementById(id);
+
+const apiUrlInput  = $("api-url-input");
+const btnConnect   = $("btn-connect");
+const connStatus   = $("conn-status");
+const connMsg      = $("conn-msg");
+const uploadCard   = $("upload-card");
+const dropZone     = $("drop-zone");
+const fileInput    = $("file-input");
+const viewer       = $("viewer");
+const mainImg      = $("main-img");
+const clickOverlay = $("click-overlay");
+const thumbImg     = $("thumb-img");
+const faceCounter  = $("face-counter");
+const btnPrev      = $("btn-prev");
+const btnNext      = $("btn-next");
+const btnAddDb     = $("btn-add-db");
+const dbNameRow    = $("db-name-row");
+const dbNameInput  = $("db-name-input");
+const btnConfirmAdd= $("btn-confirm-add");
+const btnCancelAdd = $("btn-cancel-add");
+const btnIdentify  = $("btn-identify");
+const resultBox    = $("result-box");
+const loading      = $("loading");
+const loadingMsg   = $("loading-msg");
+const toast        = $("toast");
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utility helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Encode a PIL base64 string as a data-URI the browser can display. */
+const toDataUri = (b64) => `data:image/png;base64,${b64}`;
+
+/** Show/hide the full-screen loading overlay with an optional message. */
+function showLoading(msg = "Processing…") {
+  loadingMsg.textContent = msg;
+  loading.classList.add("active");
+}
+function hideLoading() {
+  loading.classList.remove("active");
+}
+
+/** Briefly display a toast notification at the bottom-right. */
+function showToast(msg, duration = 3000) {
+  toast.textContent = msg;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), duration);
+}
+
+/** Append a line to the multi-line result box (auto-scrolls to bottom). */
+function logResult(line) {
+  resultBox.textContent = line;
+}
+
+/** Enable / disable the nav buttons based on face count. */
+function refreshNavButtons() {
+  btnPrev.disabled = state.faceCount <= 1 || state.busy;
+  btnNext.disabled = state.faceCount <= 1 || state.busy;
+}
+
+/** Update the "Face N / M · conf X.XX" counter label. */
+function refreshCounter(conf) {
+  const confStr = (conf != null) ? ` · conf ${conf.toFixed(2)}` : "";
+  faceCounter.innerHTML =
+    `Face <strong>${state.currentIdx + 1}</strong> / ${state.faceCount}${confStr}`;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API wrappers — thin fetch() calls to each Flask route
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/health
+ * Verify the server is reachable before showing the upload UI.
+ */
+async function apiHealth() {
+  const res = await fetch(`${state.apiBase}/api/health`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/upload
+ * Send the chosen image file; receive the annotated frame + metadata.
+ *
+ * @param {File} file — the File object from the file-input / drop event
+ */
+async function apiUpload(file) {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(`${state.apiBase}/api/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/select
+ * Tell the server which face is now selected; get back the updated frame.
+ *
+ * @param {number} idx — 0-based face index
+ */
+async function apiSelect(idx) {
+  const res = await fetch(`${state.apiBase}/api/select`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: state.sessionId, face_index: idx }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/add_to_db
+ * Embed the selected face and store it under the given label.
+ *
+ * @param {string} label — human-readable name / identifier
+ */
+async function apiAddToDb(label) {
+  const res = await fetch(`${state.apiBase}/api/add_to_db`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      face_index: state.currentIdx,
+      label,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * POST /api/identify
+ * Embed the selected face and find its closest match in FACE_DB.
+ */
+async function apiIdentify() {
+  const res = await fetch(`${state.apiBase}/api/identify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      face_index: state.currentIdx,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Click-overlay: translate pixel click → face index
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * After every upload or window resize the overlay canvas must match the
+ * rendered size of #main-img (which is CSS-fluid, not fixed px).
+ * We store face bounding boxes in display-image space (from the server),
+ * then scale them to overlay-canvas space here.
+ */
+function resizeOverlay() {
+  const rect = mainImg.getBoundingClientRect();
+  clickOverlay.width  = rect.width;
+  clickOverlay.height = rect.height;
+  clickOverlay.style.position = "absolute";
+  clickOverlay.style.top   = "0";
+  clickOverlay.style.left  = "0";
+  clickOverlay.style.width  = rect.width  + "px";
+  clickOverlay.style.height = rect.height + "px";
+  clickOverlay.style.cursor = "crosshair";
+  // Canvas is purely for hit-testing — keep it transparent
+}
+
+/**
+ * Handle a click on the overlay canvas.
+ * Scale the click from CSS-px space → display-image px space,
+ * then check each face bounding box.
+ *
+ * @param {MouseEvent} e
+ */
+function onOverlayClick(e) {
+  if (!state.faceAreas.length || state.busy) return;
+
+  const rect = clickOverlay.getBoundingClientRect();
+  // Scale factors: display-image-px / CSS-rendered-px
+  const scaleX = state.dispW / rect.width;
+  const scaleY = state.dispH / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top)  * scaleY;
+
+  // Test each face bounding box in display-image space
+  for (let i = 0; i < state.faceAreas.length; i++) {
+    const { x, y, w, h } = state.faceAreas[i];
+    if (cx >= x && cx <= x + w && cy >= y && cy <= y + h) {
+      selectFace(i);
+      return;
+    }
+  }
+}
+
+clickOverlay.addEventListener("click", onOverlayClick);
+window.addEventListener("resize", resizeOverlay);
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core UI actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Connect — validate and save the API base URL, ping /health.
+ * Shows the upload card only after a successful connection.
+ */
+btnConnect.addEventListener("click", async () => {
+  let url = apiUrlInput.value.trim().replace(/\/+$/, "");  // strip trailing /
+  if (!url) { showToast("⚠️ Please enter a URL first."); return; }
+
+  btnConnect.disabled = true;
+  connStatus.className = "status-pill pill-neutral";
+  connStatus.textContent = "Checking…";
+  connMsg.textContent = "";
+
+  try {
+    state.apiBase = url;
+    const data = await apiHealth();
+    connStatus.className = "status-pill pill-ok";
+    connStatus.textContent = "Connected ✓";
+    connMsg.textContent = `DB size: ${data.face_db_size} entries`;
+    uploadCard.style.display = "block";
+    showToast("✅ Server connected!");
+  } catch (err) {
+    connStatus.className = "status-pill pill-err";
+    connStatus.textContent = "Failed ✗";
+    connMsg.textContent = String(err);
+    showToast("❌ Could not reach server. Check the URL.");
+    state.apiBase = "";
+  } finally {
+    btnConnect.disabled = false;
+  }
+});
+
+/**
+ * Handle image file selection (from file picker or drag-and-drop).
+ * Sends the image to /api/upload and populates the viewer.
+ *
+ * @param {File} file
+ */
+async function handleFile(file) {
+  if (!file || !file.type.startsWith("image/")) {
+    showToast("⚠️ Please select a valid image file."); return;
+  }
+  if (!state.apiBase) {
+    showToast("⚠️ Connect to the server first."); return;
+  }
+
+  showLoading("Uploading & detecting faces…");
+  try {
+    const data = await apiUpload(file);
+
+    if (data.error) {
+      hideLoading();
+      showToast(`❌ ${data.error}`);
+      return;
+    }
+
+    // ── Populate state from server response ──────────────────────────────
+    state.sessionId  = data.session_id;
+    state.faceCount  = data.face_count;
+    state.currentIdx = 0;
+    state.dispW      = data.disp_w;
+    state.dispH      = data.disp_h;
+
+    // The server returns bounding boxes as part of the upload payload.
+    // We reconstruct them client-side from face_areas if provided;
+    // otherwise we fall back to null (click-to-select won't work, nav still will).
+    state.faceAreas  = data.face_areas || [];
+
+    // ── Update image widgets ─────────────────────────────────────────────
+    mainImg.src  = toDataUri(data.frame_b64);
+    thumbImg.src = toDataUri(data.thumb_b64);
+
+    refreshCounter(data.confidence);
+    refreshNavButtons();
+
+    // Show viewer, resize the click overlay once the image has rendered
+    viewer.style.display = "block";
+    mainImg.onload = () => { resizeOverlay(); mainImg.onload = null; };
+
+    logResult(`Detected ${data.face_count} face(s).\nSelect one and use the buttons below.`);
+    showToast(`✅ Found ${data.face_count} face(s)!`);
+
+  } catch (err) {
+    showToast(`❌ Upload failed: ${err}`);
+  } finally {
+    hideLoading();
+  }
+}
+
+// Trigger file dialog when drop-zone is clicked
+dropZone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+
+// Drag-and-drop support
+dropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropZone.classList.add("drag-over");
+});
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  handleFile(e.dataTransfer.files[0]);
+});
+
+
+/**
+ * Switch the highlighted face to *idx*.
+ * Calls /api/select and updates the main image + thumbnail.
+ *
+ * @param {number} idx — 0-based face index
+ */
+async function selectFace(idx) {
+  if (state.busy) return;
+  state.busy = true;
+  refreshNavButtons();
+
+  try {
+    const data = await apiSelect(idx);
+    state.currentIdx = idx;
+    mainImg.src  = toDataUri(data.frame_b64);
+    thumbImg.src = toDataUri(data.thumb_b64);
+    refreshCounter(data.confidence);
+    // Close the DB name row if it was open
+    dbNameRow.classList.remove("visible");
+  } catch (err) {
+    showToast(`❌ Select failed: ${err}`);
+  } finally {
+    state.busy = false;
+    refreshNavButtons();
+  }
+}
+
+// Previous / Next navigation
+btnPrev.addEventListener("click", () =>
+  selectFace((state.currentIdx - 1 + state.faceCount) % state.faceCount)
+);
+btnNext.addEventListener("click", () =>
+  selectFace((state.currentIdx + 1) % state.faceCount)
+);
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add to DB — two-step UX: first click shows name input, second saves
+// ─────────────────────────────────────────────────────────────────────────────
+
+btnAddDb.addEventListener("click", () => {
+  // Toggle visibility of the inline name input
+  dbNameRow.classList.toggle("visible");
+  if (dbNameRow.classList.contains("visible")) {
+    dbNameInput.focus();
+  }
+});
+
+btnCancelAdd.addEventListener("click", () => {
+  dbNameRow.classList.remove("visible");
+  dbNameInput.value = "";
+});
+
+/** Actually send the face to the server and store it in FACE_DB. */
+async function confirmAddToDb() {
+  const label = dbNameInput.value.trim();
+  if (!label) { showToast("⚠️ Please enter a name."); return; }
+
+  showLoading("Generating embedding…");
+  try {
+    const data = await apiAddToDb(label);
+    if (data.error) throw new Error(data.error);
+    logResult(`${data.message}\nDatabase now has ${data.db_size} entries.`);
+    showToast(`✅ ${label} added!`);
+    dbNameInput.value = "";
+    dbNameRow.classList.remove("visible");
+  } catch (err) {
+    showToast(`❌ ${err}`);
+    logResult(`Error: ${err}`);
+  } finally {
+    hideLoading();
+  }
+}
+
+btnConfirmAdd.addEventListener("click", confirmAddToDb);
+// Allow pressing Enter inside the name field to confirm
+dbNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") confirmAddToDb();
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identify — embed the current face and search the DB
+// ─────────────────────────────────────────────────────────────────────────────
+
+btnIdentify.addEventListener("click", async () => {
+  if (!state.sessionId) { showToast("⚠️ Upload an image first."); return; }
+
+  showLoading("Identifying…");
+  try {
+    const data = await apiIdentify();
+    if (data.error) throw new Error(data.error);
+
+    // Build a nicely formatted result string
+    const lines = [
+      data.message,
+      `Similarity score: ${(data.similarity * 100).toFixed(1)}%`,
+    ];
+    logResult(lines.join("\n"));
+
+    const emoji = data.match === "Unknown" ? "❓" : "✅";
+    showToast(`${emoji} ${data.match} (${(data.similarity * 100).toFixed(1)}%)`);
+
+  } catch (err) {
+    showToast(`❌ Identify failed: ${err}`);
+    logResult(`Error: ${err}`);
+  } finally {
+    hideLoading();
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// On load — pre-fill the URL input if a query-param is provided.
+//
+// Usage: https://yourname.github.io/face-browser/?api=https://xxx.trycloudflare.com
+// This lets you share a direct link that pre-populates the server field.
+// ─────────────────────────────────────────────────────────────────────────────
+
+(function prefillFromQueryParam() {
+  const params = new URLSearchParams(window.location.search);
+  const apiParam = params.get("api");
+  if (apiParam) {
+    apiUrlInput.value = apiParam;
+    // Optionally auto-connect:
+    // btnConnect.click();
+  }
+})();
+
+</script>
+</body>
+</html>
