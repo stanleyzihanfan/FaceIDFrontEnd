@@ -915,7 +915,8 @@ async function triggerDisplayPxRerender(newPx) {
       mainImg.onload = () => { resizeOverlay(); mainImg.onload = null; };
       setRenderProgress(1, state.faceCount);
     }
-
+    //Unlock selection
+    state.rerendering=false;
     // Start polling for all remaining frames
     startRenderPolling();
 
