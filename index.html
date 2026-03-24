@@ -3,16 +3,16 @@
 <head>
 <!--
   ╔══════════════════════════════════════════════════════════════════════════════╗
-  ║           FACE BROWSER — GITHUB PAGES FRONTEND  (index.html)               ║
+  ║           FACE BROWSER — GITHUB PAGES FRONTEND  (index.html)                 ║
   ║                                                                              ║
-  ║  Dynamic render system:                                                     ║
-  ║  • After upload, /api/render_all kicks off background rendering of every   ║
-  ║    face frame on the server.                                                ║
-  ║  • The UI polls /api/render_status and marks each face slot ready/pending. ║
-  ║  • Navigation is INSTANT for ready frames (served from client-side cache). ║
-  ║  • Navigating to a pending frame shows a toast and does nothing.           ║
-  ║  • Moving the Display Max Px slider calls /api/set_display_px (debounced), ║
-  ║    which re-renders all frames at the new resolution in the background.    ║
+  ║  Dynamic render system:                                                      ║
+  ║  • After upload, /api/render_all kicks off background rendering of every     ║
+  ║    face frame on the server.                                                 ║
+  ║  • The UI polls /api/render_status and marks each face slot ready/pending.   ║
+  ║  • Navigation is INSTANT for ready frames (served from client-side cache).   ║
+  ║  • Navigating to a pending frame shows a toast and does nothing.             ║
+  ║  • Moving the Display Max Px slider calls /api/set_display_px (debounced),   ║
+  ║    which re-renders all frames at the new resolution in the background.      ║
   ╚══════════════════════════════════════════════════════════════════════════════╝
 -->
 <meta charset="UTF-8" />
