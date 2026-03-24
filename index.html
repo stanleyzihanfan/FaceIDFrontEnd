@@ -14,43 +14,48 @@
   ║  1. Run colab_face_server.py in Google Colab.                               ║
   ║  2. Copy the *.trycloudflare.com URL it prints.                             ║
   ║  3. Paste it into the "API Endpoint" box on this page and click Connect.    ║
-  ║  4. Upload a photo — detected faces appear in the viewer.                   ║
-  ║  5. Navigate, add to the face database, or identify faces.                  ║
+  ║  4. Adjust the DETECT_MAX_PX / DISPLAY_MAX_PX sliders if desired.          ║
+  ║  5. Upload a photo — detected faces appear in the viewer.                   ║
+  ║  6. Navigate, add to the face database, or identify faces.                  ║
   ╚══════════════════════════════════════════════════════════════════════════════╝
 -->
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Face Browser</title>
 
-<!-- ── Google Fonts: Syne (display) + DM Mono (code/labels) ──────────────── -->
+<!-- ── Google Fonts: Syne (display headings) + DM Mono (code/labels) ────── -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   Design language: dark, industrial-terminal aesthetic.
-   Neon cyan (#00ffcc) as the single accent — mirrors the Colab box highlights.
+   DESIGN LANGUAGE
+   Dark, industrial-terminal aesthetic.
+   Neon cyan (#00ffcc) as the single accent colour — mirrors Colab highlights.
    Heavy Syne headings + DM Mono for all code / data values.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── CSS custom properties — change these to retheme the whole UI ────────── */
 :root {
-  --bg:          #0a0c10;
-  --surface:     #12161e;
-  --surface2:    #1a1f2b;
-  --border:      #252b38;
-  --accent:      #00ffcc;
-  --accent-dim:  #00b89a;
-  --danger:      #ff4444;
-  --text:        #d4dbe8;
-  --text-muted:  #5a6478;
+  --bg:          #0a0c10;   /* Page background                              */
+  --surface:     #12161e;   /* Card / panel background                      */
+  --surface2:    #1a1f2b;   /* Slightly lighter — inputs, code areas        */
+  --border:      #252b38;   /* Subtle border colour                         */
+  --accent:      #00ffcc;   /* Neon cyan — primary highlight                */
+  --accent-dim:  #00b89a;   /* Muted accent for secondary uses              */
+  --danger:      #ff4444;   /* Error / destructive actions                  */
+  --text:        #d4dbe8;   /* Default body text                            */
+  --text-muted:  #5a6478;   /* Labels, captions, hints                      */
   --font-head:   'Syne', sans-serif;
   --font-mono:   'DM Mono', monospace;
   --radius:      6px;
   --transition:  0.18s ease;
 }
 
+/* ── Global reset ────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Root layout — scanline texture adds to the terminal feel ────────────── */
 html, body {
   min-height: 100vh;
   background: var(--bg);
@@ -58,7 +63,6 @@ html, body {
   font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.6;
-  /* Subtle scanline texture for the terminal feel */
   background-image: repeating-linear-gradient(
     0deg,
     transparent,
@@ -68,14 +72,14 @@ html, body {
   );
 }
 
-/* ── Page shell ─────────────────────────────────────────────────────────── */
+/* ── Outer page wrapper — max-width centres content on wide screens ──────── */
 #app {
   max-width: 1200px;
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
+/* ── Page header ─────────────────────────────────────────────────────────── */
 header {
   display: flex;
   align-items: baseline;
@@ -93,7 +97,7 @@ header h1 {
   color: #fff;
 }
 
-/* Glowing accent word */
+/* The "Browser" word glows in accent cyan */
 header h1 span {
   color: var(--accent);
   text-shadow: 0 0 18px rgba(0,255,204,0.45);
@@ -104,15 +108,18 @@ header p {
   font-size: 12px;
 }
 
-/* ── Card component ─────────────────────────────────────────────────────── */
+/* ── Card — generic surface container used throughout the page ───────────── */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 24px;
   margin-bottom: 20px;
+  /* Relative positioning allows inline spinners to be positioned inside */
+  position: relative;
 }
 
+/* Section heading inside a card */
 .card-title {
   font-family: var(--font-head);
   font-size: 13px;
@@ -123,7 +130,7 @@ header p {
   margin-bottom: 14px;
 }
 
-/* ── Step badge ─────────────────────────────────────────────────────────── */
+/* ── Numbered step badge — cyan circle with black numeral ────────────────── */
 .step-badge {
   display: inline-flex;
   align-items: center;
@@ -139,9 +146,10 @@ header p {
   flex-shrink: 0;
 }
 
-/* ── Form controls ──────────────────────────────────────────────────────── */
+/* ── Generic flex row — used for side-by-side controls ───────────────────── */
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+/* ── Text / URL input fields ─────────────────────────────────────────────── */
 input[type="text"], input[type="url"] {
   flex: 1;
   min-width: 200px;
@@ -159,7 +167,71 @@ input[type="text"]:focus, input[type="url"]:focus {
   border-color: var(--accent);
 }
 
-/* ── Buttons ────────────────────────────────────────────────────────────── */
+/* ── Range (slider) inputs ───────────────────────────────────────────────── */
+/*
+  Custom-styled so they match the dark theme.
+  Each slider has a label + current-value readout above it.
+*/
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.slider-label span:last-child {
+  /* Live value display */
+  color: var(--accent);
+  font-weight: 500;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+
+/* Filled portion of the track (WebKit) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(0,255,204,0.5);
+  cursor: pointer;
+  transition: box-shadow var(--transition);
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 12px rgba(0,255,204,0.8);
+}
+
+/* Firefox thumb */
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(0,255,204,0.5);
+  cursor: pointer;
+  border: none;
+}
+
+/* ── Button base styles ──────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -176,10 +248,14 @@ input[type="text"]:focus, input[type="url"]:focus {
   transition: opacity var(--transition), transform var(--transition),
               box-shadow var(--transition);
   user-select: none;
+  /* Needed so a spinner can be positioned relative to the button */
+  position: relative;
+  overflow: hidden;
 }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 
+/* Primary — cyan / black */
 .btn-primary {
   background: var(--accent);
   color: #000;
@@ -188,6 +264,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   box-shadow: 0 0 14px rgba(0,255,204,0.4);
 }
 
+/* Purple — DB / embedding actions */
 .btn-purple {
   background: #6610f2;
   color: #fff;
@@ -196,6 +273,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   box-shadow: 0 0 14px rgba(102,16,242,0.45);
 }
 
+/* Green — save / add actions */
 .btn-green {
   background: #198754;
   color: #fff;
@@ -204,6 +282,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   box-shadow: 0 0 14px rgba(25,135,84,0.45);
 }
 
+/* Blue — navigation arrows */
 .btn-nav {
   background: #0d6efd;
   color: #fff;
@@ -213,13 +292,14 @@ input[type="text"]:focus, input[type="url"]:focus {
   box-shadow: 0 0 14px rgba(13,110,253,0.45);
 }
 
+/* Ghost danger — cancel / destructive outline button */
 .btn-danger {
   background: transparent;
   color: var(--danger);
   border: 1px solid var(--danger);
 }
 
-/* ── Status pill ────────────────────────────────────────────────────────── */
+/* ── Status pill — connection state indicator ────────────────────────────── */
 .status-pill {
   display: inline-block;
   padding: 3px 10px;
@@ -232,11 +312,12 @@ input[type="text"]:focus, input[type="url"]:focus {
 .pill-err     { background: rgba(255,68,68,0.15); color: #ff4444; border: 1px solid #ff4444; }
 .pill-neutral { background: var(--surface2);      color: var(--text-muted); border: 1px solid var(--border); }
 
-/* ── Main viewer layout ─────────────────────────────────────────────────── */
+/* ── Face viewer panel — hidden until image is uploaded ──────────────────── */
 #viewer {
-  display: none;   /* hidden until an image is successfully uploaded */
+  display: none;
 }
 
+/* Two-column layout: big annotated image left, controls panel right */
 #viewer-inner {
   display: flex;
   gap: 20px;
@@ -244,9 +325,9 @@ input[type="text"]:focus, input[type="url"]:focus {
   flex-wrap: wrap;
 }
 
-/* ── Image display area ─────────────────────────────────────────────────── */
+/* ── Annotated image container ───────────────────────────────────────────── */
 #image-wrap {
-  position: relative;
+  position: relative;  /* Required — click overlay is absolute inside this */
   flex: 1 1 300px;
   max-width: 900px;
   background: var(--surface2);
@@ -262,14 +343,17 @@ input[type="text"]:focus, input[type="url"]:focus {
   height: auto;
 }
 
-/* Invisible click overlay — same size as image, captures mouse events */
+/*
+  Transparent canvas layered over #main-img.
+  Captures mouse clicks and maps them to face bounding-boxes.
+  Must always match the rendered size of #main-img (resized by resizeOverlay()).
+*/
 #click-overlay {
   position: absolute;
   inset: 0;
-  /* data attributes are set by JS after we know image dims */
 }
 
-/* ── Side panel ─────────────────────────────────────────────────────────── */
+/* ── Right-hand control panel ────────────────────────────────────────────── */
 #side-panel {
   flex: 0 0 200px;
   display: flex;
@@ -277,6 +361,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   gap: 12px;
 }
 
+/* Face thumbnail — selected face shown with a glowing border */
 #thumb-img {
   width: 100%;
   border-radius: var(--radius);
@@ -284,7 +369,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   box-shadow: 0 0 16px rgba(0,255,204,0.25);
 }
 
-/* Face counter */
+/* "Face N / M · conf X.XX" counter */
 #face-counter {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -293,7 +378,7 @@ input[type="text"]:focus, input[type="url"]:focus {
 }
 #face-counter strong { color: var(--accent); }
 
-/* ── Result / log area ──────────────────────────────────────────────────── */
+/* ── Multi-line result / log area ────────────────────────────────────────── */
 #result-box {
   background: var(--surface2);
   border: 1px solid var(--border);
@@ -306,7 +391,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   color: var(--text);
 }
 
-/* ── Navigation row ─────────────────────────────────────────────────────── */
+/* ── Prev / Next navigation buttons ─────────────────────────────────────── */
 #nav-row {
   display: flex;
   gap: 12px;
@@ -315,7 +400,7 @@ input[type="text"]:focus, input[type="url"]:focus {
   flex-wrap: wrap;
 }
 
-/* ── Upload drop-zone ───────────────────────────────────────────────────── */
+/* ── Drag-and-drop image upload zone ─────────────────────────────────────── */
 #drop-zone {
   border: 2px dashed var(--border);
   border-radius: var(--radius);
@@ -324,32 +409,57 @@ input[type="text"]:focus, input[type="url"]:focus {
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition);
   color: var(--text-muted);
+  /* Position relative so the inline upload spinner can sit inside */
+  position: relative;
 }
 #drop-zone:hover, #drop-zone.drag-over {
   border-color: var(--accent);
   background: rgba(0,255,204,0.04);
   color: var(--text);
 }
+/* The actual <input type="file"> is hidden — clicking the zone triggers it */
 #drop-zone input { display: none; }
 #drop-zone svg { margin-bottom: 10px; }
 
-/* ── Loading spinner overlay ────────────────────────────────────────────── */
-#loading {
+/* ── "Add to DB" name input row — revealed after clicking the button ──────── */
+#db-name-row {
   display: none;
-  position: fixed;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#db-name-row.visible { display: flex; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   INLINE LOADING INDICATORS
+   Each section gets its own localised spinner so the whole page is never
+   blocked.  All spinners share .inline-loading; the container context
+   determines their exact placement.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/*
+  Container that dims and overlays its parent card / zone.
+  Uses position:absolute so it only covers the section it belongs to.
+*/
+.inline-loading {
+  display: none;               /* hidden by default                        */
+  position: absolute;
   inset: 0;
-  background: rgba(10,12,16,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 999;
+  background: rgba(10, 12, 16, 0.75);
+  backdrop-filter: blur(3px);
+  border-radius: var(--radius);
+  z-index: 10;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
-#loading.active { display: flex; }
+/* Show the overlay by toggling this class */
+.inline-loading.active { display: flex; }
 
+/* Rotating arc spinner */
 .spinner {
-  width: 44px; height: 44px;
+  width: 32px; height: 32px;
   border: 3px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -357,14 +467,32 @@ input[type="text"]:focus, input[type="url"]:focus {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-#loading p {
+/* Label underneath the spinner */
+.inline-loading p {
   font-family: var(--font-head);
   font-weight: 700;
+  font-size: 12px;
   color: var(--accent);
   letter-spacing: 1px;
 }
 
-/* ── Notification toast ─────────────────────────────────────────────────── */
+/*
+  Button-level spinner: a tiny 14px arc that replaces button text.
+  Shown inside .btn elements that have their own loading state.
+*/
+.btn-spinner {
+  display: none;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+/* Toggle with JS when the button is busy */
+.btn.loading .btn-spinner    { display: inline-block; }
+.btn.loading .btn-label      { display: none; }
+
+/* ── Toast notification — bottom-right corner ────────────────────────────── */
 #toast {
   position: fixed;
   bottom: 28px;
@@ -383,16 +511,7 @@ input[type="text"]:focus, input[type="url"]:focus {
 }
 #toast.show { transform: translateY(0); opacity: 1; }
 
-/* ── Add-to-DB inline name input ────────────────────────────────────────── */
-#db-name-row {
-  display: none;   /* revealed when "Add to DB" is clicked */
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-#db-name-row.visible { display: flex; }
-
-/* ── Responsive: stack panels on small screens ──────────────────────────── */
+/* ── Responsive: stack into a single column on narrow screens ─────────────── */
 @media (max-width: 680px) {
   #viewer-inner { flex-direction: column; }
   #side-panel   { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; }
@@ -404,7 +523,7 @@ input[type="text"]:focus, input[type="url"]:focus {
 <div id="app">
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       HEADER
+       PAGE HEADER
        ════════════════════════════════════════════════════════════════════ -->
   <header>
     <h1>🔍 Face <span>Browser</span></h1>
@@ -414,13 +533,17 @@ input[type="text"]:focus, input[type="url"]:focus {
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        STEP 1 — Connect to the Colab API server
-       The user pastes the trycloudflare.com URL from their Colab output.
-       "Connect" pings /api/health to verify the server is reachable.
+       ─────────────────────────────────────────────────────────────────────
+       The user pastes the *.trycloudflare.com URL printed by the Colab cell.
+       Clicking "Connect" pings GET /api/health to verify the server is live.
+       On success the DB entry count is shown and the upload card is revealed.
        ════════════════════════════════════════════════════════════════════ -->
   <div class="card" id="connect-card">
     <div class="card-title">
       <span class="step-badge">1</span>Connect to Colab Server
     </div>
+
+    <!-- URL input + Connect button -->
     <div class="row">
       <input
         type="url"
@@ -431,26 +554,91 @@ input[type="text"]:focus, input[type="url"]:focus {
       />
       <button class="btn btn-primary" id="btn-connect">Connect</button>
     </div>
+
+    <!-- Connection status pill + extra info (DB entry count etc.) -->
     <div style="margin-top:10px; display:flex; align-items:center; gap:8px;">
       <span id="conn-status" class="status-pill pill-neutral">Not connected</span>
+      <!--
+        #conn-msg shows DB size after connect and is refreshed every time
+        a face is added to the database, so the count stays accurate.
+      -->
       <span id="conn-msg" style="font-size:12px;color:var(--text-muted)"></span>
     </div>
   </div>
 
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       STEP 2 — Upload image
-       The image is POSTed as multipart/form-data to /api/upload.
-       The server responds with the annotated frame + face metadata.
+       STEP 2 — Configure detection parameters + upload image
+       ─────────────────────────────────────────────────────────────────────
+       Two sliders let the user tune DETECT_MAX_PX and DISPLAY_MAX_PX before
+       uploading.  Their values are sent with every /api/upload request so the
+       server uses them for that specific image.
+
+       DETECT_MAX_PX  — the long-edge resolution used during face detection.
+                        Lower = faster inference but may miss small faces.
+       DISPLAY_MAX_PX — the long-edge resolution of the annotated preview PNG
+                        sent back to the browser.  Lower = smaller payloads.
+
+       The drag-and-drop zone has its own inline loading overlay that activates
+       while the image is uploading and faces are being detected.
        ════════════════════════════════════════════════════════════════════ -->
   <div class="card" id="upload-card" style="display:none">
     <div class="card-title">
-      <span class="step-badge">2</span>Upload Image
+      <span class="step-badge">2</span>Configure &amp; Upload Image
     </div>
 
-    <!-- Drag-and-drop zone; clicking also triggers the hidden file input -->
+    <!-- ── Detection/display resolution sliders ──────────────────────── -->
+    <!--
+      Slider values are stored in state.detectMaxPx / state.displayMaxPx.
+      They default to the server-side constants but can be overridden here.
+      Both are sent as form fields alongside the image on every upload.
+    -->
+    <div class="row" style="margin-bottom:16px; gap:20px;">
+
+      <!-- DETECT_MAX_PX slider: 320 – 2560 in steps of 64 -->
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Detect Max Px <em style="color:var(--text-muted)">(long edge for detection)</em></span>
+          <span id="detect-val">1280</span>
+        </div>
+        <input
+          type="range"
+          id="detect-slider"
+          min="320" max="2560" step="64"
+          value="1280"
+        />
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
+          <span>320 (fast)</span><span>2560 (accurate)</span>
+        </div>
+      </div>
+
+      <!-- DISPLAY_MAX_PX slider: 320 – 1920 in steps of 64 -->
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Display Max Px <em style="color:var(--text-muted)">(preview image size)</em></span>
+          <span id="display-val">900</span>
+        </div>
+        <input
+          type="range"
+          id="display-slider"
+          min="320" max="1920" step="64"
+          value="900"
+        />
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
+          <span>320 (small)</span><span>1920 (crisp)</span>
+        </div>
+      </div>
+
+    </div><!-- /slider row -->
+
+    <!-- ── Drag-and-drop upload zone ─────────────────────────────────── -->
+    <!--
+      position:relative on #drop-zone lets the .inline-loading overlay
+      (#upload-loading) cover only this element, not the whole card.
+    -->
     <div id="drop-zone">
-      <!-- Upload icon SVG -->
+
+      <!-- Upload icon (decorative SVG) -->
       <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
            stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"
            stroke-linejoin="round">
@@ -460,13 +648,30 @@ input[type="text"]:focus, input[type="url"]:focus {
       </svg>
       <p>Drag &amp; drop a photo here, or <u>click to browse</u></p>
       <p style="font-size:11px;margin-top:6px">JPEG · PNG · WEBP · up to ~20 MB</p>
+
+      <!-- Hidden native file picker — triggered by clicking the drop zone -->
       <input type="file" id="file-input" accept="image/*" />
-    </div>
-  </div>
+
+      <!--
+        INLINE LOADING OVERLAY — upload / detection phase.
+        Covers only the drop zone so the rest of the card remains visible.
+        Activated by showUploadLoading() / hideUploadLoading().
+      -->
+      <div class="inline-loading" id="upload-loading">
+        <div class="spinner"></div>
+        <p id="upload-loading-msg">Uploading &amp; detecting…</p>
+      </div>
+
+    </div><!-- /drop-zone -->
+  </div><!-- /upload-card -->
 
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       STEP 3 — Face viewer (hidden until an image is processed)
+       STEP 3 — Face viewer (hidden until an image is successfully processed)
+       ─────────────────────────────────────────────────────────────────────
+       Left column: the annotated full-width image with a transparent click
+                    overlay that converts mouse clicks → face selections.
+       Right column: face thumbnail, navigation, Add-to-DB, Identify controls.
        ════════════════════════════════════════════════════════════════════ -->
   <div id="viewer" class="card">
     <div class="card-title">
@@ -475,61 +680,77 @@ input[type="text"]:focus, input[type="url"]:focus {
 
     <div id="viewer-inner">
 
-      <!-- ── Main annotated image with click overlay ───────────────────── -->
+      <!-- ── Main annotated image ────────────────────────────────────── -->
       <!--
-        #image-wrap is position:relative.
-        #main-img shows the annotated PNG returned by the server.
-        #click-overlay sits on top and captures click coordinates;
-        JS translates the click position into a face index and calls /api/select.
+        #image-wrap is position:relative so the transparent #click-overlay
+        canvas can be absolutely positioned on top of #main-img.
       -->
       <div id="image-wrap">
         <img id="main-img" alt="Annotated photo" />
+        <!--
+          Transparent canvas exactly overlapping #main-img.
+          onOverlayClick() maps CSS-pixel click coords → display-image-pixel
+          coords → face bounding-box hit test → selectFace(i).
+        -->
         <canvas id="click-overlay"></canvas>
       </div>
 
-      <!-- ── Side panel: thumbnail, controls, results ──────────────────── -->
+      <!-- ── Right-hand side panel ───────────────────────────────────── -->
       <div id="side-panel">
         <div class="card-title" style="margin-bottom:4px">Selected face</div>
 
-        <!-- Thumbnail of the currently selected face -->
+        <!-- Thumbnail of the currently highlighted face (with cyan border) -->
         <img id="thumb-img" alt="Face thumbnail" />
 
-        <!-- Face navigation counter: "Face 2 / 5 · conf 0.98" -->
+        <!-- "Face 2 / 5 · conf 0.98" navigation counter -->
         <div id="face-counter">–</div>
 
-        <!-- Prev / Next navigation buttons -->
+        <!-- Prev / Next buttons to cycle through detected faces -->
         <div id="nav-row">
           <button class="btn btn-nav" id="btn-prev" disabled>◀ Prev</button>
-          <button class="btn btn-nav" id="btn-next" disabled>Next ▶</button>
+          <button class="btn btn-next btn-nav" id="btn-next" disabled>
+            <span class="btn-label">Next ▶</span>
+            <!-- Tiny spinner shown while the server re-renders the frame -->
+            <span class="btn-spinner"></span>
+          </button>
         </div>
 
-        <!-- ── Add to DB flow ──────────────────────────────────────────── -->
+        <!-- ── Add to DB — two-step UX ──────────────────────────────── -->
         <!--
-          First click reveals the name input (#db-name-row).
-          Second click (or pressing Enter) sends the face to /api/add_to_db.
+          First click reveals #db-name-row (name input + Save / Cancel).
+          Clicking Save POSTs to /api/add_to_db; on success the DB entry
+          count in the connection status bar is refreshed automatically.
+          The button itself shows an inline spinner while the request is in
+          flight so the user knows something is happening.
         -->
         <button class="btn btn-green" id="btn-add-db" style="width:100%">
-          + Add to DB
+          <span class="btn-label">+ Add to DB</span>
+          <span class="btn-spinner"></span>
         </button>
 
+        <!-- Revealed after clicking "+ Add to DB" -->
         <div id="db-name-row">
           <input type="text" id="db-name-input"
                  placeholder="Person's name…" style="flex:1" />
-          <button class="btn btn-green" id="btn-confirm-add">Save</button>
+          <button class="btn btn-green" id="btn-confirm-add">
+            <span class="btn-label">Save</span>
+            <span class="btn-spinner"></span>
+          </button>
           <button class="btn btn-danger" id="btn-cancel-add">✕</button>
         </div>
 
-        <!-- ── Identify button ─────────────────────────────────────────── -->
+        <!-- ── Identify button ─────────────────────────────────────── -->
         <!--
-          Sends the current face to /api/identify.
-          The server embeds the face and finds the closest cosine-similarity
-          match in FACE_DB, returning the label and score.
+          POSTs to /api/identify.  The server embeds the current face and
+          finds the closest cosine-similarity match in FACE_DB.
+          The button shows an inline spinner while the request runs.
         -->
         <button class="btn btn-purple" id="btn-identify" style="width:100%">
-          🔍 Identify
+          <span class="btn-label">🔍 Identify</span>
+          <span class="btn-spinner"></span>
         </button>
 
-        <!-- Result log: multi-line output from add/identify actions -->
+        <!-- Multi-line result / log — outputs from Add and Identify -->
         <div id="result-box">Results will appear here…</div>
       </div>
 
@@ -539,120 +760,192 @@ input[type="text"]:focus, input[type="url"]:focus {
 </div><!-- /app -->
 
 
-<!-- ── Full-screen loading overlay ────────────────────────────────────────── -->
-<div id="loading">
-  <div class="spinner"></div>
-  <p id="loading-msg">Processing…</p>
-</div>
-
-<!-- ── Toast notification ─────────────────────────────────────────────────── -->
-<div id="toast" id="toast"></div>
+<!-- ── Toast notification (bottom-right, auto-dismisses) ──────────────────── -->
+<div id="toast"></div>
 
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
-     JAVASCRIPT
-     All API communication lives here.  No build step required.
+     JAVASCRIPT — all API communication and UI logic lives here.
+     No build step required; this is vanilla ES2020.
      ═══════════════════════════════════════════════════════════════════════ -->
 <script>
 "use strict";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// State — the single source of truth for the current session
+// APPLICATION STATE
+// Single source of truth for everything that changes at runtime.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const state = {
-  apiBase:     "",          // trycloudflare.com base URL (no trailing slash)
-  sessionId:   null,        // UUID assigned by the server after upload
-  faceCount:   0,           // total detected faces in the current image
-  currentIdx:  0,           // 0-based index of the selected face
-  faceAreas:   [],          // [{ x, y, w, h }, …] in DISPLAY-image pixels
-  dispW:       0,           // display image width  (px)
-  dispH:       0,           // display image height (px)
-  busy:        false,       // prevents duplicate in-flight requests
+  apiBase:     "",          // Cloudflare tunnel base URL (no trailing slash)
+  sessionId:   null,        // UUID returned by the server after a successful upload
+  faceCount:   0,           // Number of faces detected in the current image
+  currentIdx:  0,           // 0-based index of the currently selected face
+  faceAreas:   [],          // Array of { x, y, w, h } in DISPLAY-image pixel space
+  dispW:       0,           // Display image width in pixels (for click-to-select maths)
+  dispH:       0,           // Display image height in pixels
+  busy:        false,       // Prevents duplicate in-flight requests on nav buttons
+  detectMaxPx: 1280,        // Mirrors the DETECT_MAX_PX constant on the server
+  displayMaxPx: 900,        // Mirrors the DISPLAY_MAX_PX constant on the server
 };
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DOM references — cached once at startup for performance
+// DOM REFERENCES — cached once at startup to avoid repeated getElementById calls
 // ─────────────────────────────────────────────────────────────────────────────
 
-const $  = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
-const apiUrlInput  = $("api-url-input");
-const btnConnect   = $("btn-connect");
-const connStatus   = $("conn-status");
-const connMsg      = $("conn-msg");
-const uploadCard   = $("upload-card");
-const dropZone     = $("drop-zone");
-const fileInput    = $("file-input");
-const viewer       = $("viewer");
-const mainImg      = $("main-img");
-const clickOverlay = $("click-overlay");
-const thumbImg     = $("thumb-img");
-const faceCounter  = $("face-counter");
-const btnPrev      = $("btn-prev");
-const btnNext      = $("btn-next");
-const btnAddDb     = $("btn-add-db");
-const dbNameRow    = $("db-name-row");
-const dbNameInput  = $("db-name-input");
-const btnConfirmAdd= $("btn-confirm-add");
-const btnCancelAdd = $("btn-cancel-add");
-const btnIdentify  = $("btn-identify");
-const resultBox    = $("result-box");
-const loading      = $("loading");
-const loadingMsg   = $("loading-msg");
-const toast        = $("toast");
+const apiUrlInput    = $("api-url-input");
+const btnConnect     = $("btn-connect");
+const connStatus     = $("conn-status");
+const connMsg        = $("conn-msg");
+const uploadCard     = $("upload-card");
+const dropZone       = $("drop-zone");
+const fileInput      = $("file-input");
+const detectSlider   = $("detect-slider");
+const displaySlider  = $("display-slider");
+const detectVal      = $("detect-val");
+const displayVal     = $("display-val");
+const viewer         = $("viewer");
+const mainImg        = $("main-img");
+const clickOverlay   = $("click-overlay");
+const thumbImg       = $("thumb-img");
+const faceCounter    = $("face-counter");
+const btnPrev        = $("btn-prev");
+const btnNext        = $("btn-next");
+const btnAddDb       = $("btn-add-db");
+const dbNameRow      = $("db-name-row");
+const dbNameInput    = $("db-name-input");
+const btnConfirmAdd  = $("btn-confirm-add");
+const btnCancelAdd   = $("btn-cancel-add");
+const btnIdentify    = $("btn-identify");
+const resultBox      = $("result-box");
+const uploadLoading  = $("upload-loading");   // inline overlay for the drop zone
+const uploadLoadingMsg = $("upload-loading-msg");
+const toast          = $("toast");
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Utility helpers
+// SLIDER EVENT HANDLERS
+// Keep state in sync with slider positions and update the live readout labels.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Encode a PIL base64 string as a data-URI the browser can display. */
+detectSlider.addEventListener("input", () => {
+  state.detectMaxPx = parseInt(detectSlider.value, 10);
+  detectVal.textContent = detectSlider.value;
+});
+
+displaySlider.addEventListener("input", () => {
+  state.displayMaxPx = parseInt(displaySlider.value, 10);
+  displayVal.textContent = displaySlider.value;
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITY HELPERS
+// Small functions used throughout the rest of the code.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a raw base64 PNG string into a src-safe data URI.
+ * The server omits the prefix to keep JSON smaller; we add it here.
+ */
 const toDataUri = (b64) => `data:image/png;base64,${b64}`;
 
-/** Show/hide the full-screen loading overlay with an optional message. */
-function showLoading(msg = "Processing…") {
-  loadingMsg.textContent = msg;
-  loading.classList.add("active");
-}
-function hideLoading() {
-  loading.classList.remove("active");
+/**
+ * Show the inline upload-zone loading overlay with a custom message.
+ * @param {string} msg — short description shown under the spinner
+ */
+function showUploadLoading(msg = "Processing…") {
+  uploadLoadingMsg.textContent = msg;
+  uploadLoading.classList.add("active");
 }
 
-/** Briefly display a toast notification at the bottom-right. */
+/** Hide the upload-zone loading overlay. */
+function hideUploadLoading() {
+  uploadLoading.classList.remove("active");
+}
+
+/**
+ * Put a button into "loading" state:
+ * hides its .btn-label, shows its .btn-spinner, and disables it.
+ * @param {HTMLElement} btn
+ */
+function setBtnLoading(btn) {
+  btn.classList.add("loading");
+  btn.disabled = true;
+}
+
+/**
+ * Restore a button from "loading" state.
+ * @param {HTMLElement} btn
+ */
+function clearBtnLoading(btn) {
+  btn.classList.remove("loading");
+  btn.disabled = false;
+}
+
+/**
+ * Show a brief toast notification in the bottom-right corner.
+ * Auto-dismisses after *duration* ms.
+ * @param {string} msg
+ * @param {number} duration — milliseconds before the toast disappears
+ */
 function showToast(msg, duration = 3000) {
   toast.textContent = msg;
   toast.classList.add("show");
   setTimeout(() => toast.classList.remove("show"), duration);
 }
 
-/** Append a line to the multi-line result box (auto-scrolls to bottom). */
+/**
+ * Replace the content of the result log with a single message.
+ * @param {string} line
+ */
 function logResult(line) {
   resultBox.textContent = line;
 }
 
-/** Enable / disable the nav buttons based on face count. */
+/**
+ * Enable / disable the Prev and Next navigation buttons.
+ * Disabled when there is only one face or when a request is in flight.
+ */
 function refreshNavButtons() {
   btnPrev.disabled = state.faceCount <= 1 || state.busy;
   btnNext.disabled = state.faceCount <= 1 || state.busy;
 }
 
-/** Update the "Face N / M · conf X.XX" counter label. */
+/**
+ * Update the "Face N / M · conf X.XX" counter text.
+ * @param {number|null} conf — detection confidence score, or null if not available
+ */
 function refreshCounter(conf) {
   const confStr = (conf != null) ? ` · conf ${conf.toFixed(2)}` : "";
   faceCounter.innerHTML =
     `Face <strong>${state.currentIdx + 1}</strong> / ${state.faceCount}${confStr}`;
 }
 
+/**
+ * Update the DB entry count shown next to the connection status pill.
+ * Called after every successful add-to-DB operation so the count is
+ * always current without requiring a page reload or manual reconnect.
+ * @param {number} size — new database entry count returned by the server
+ */
+function refreshDbCount(size) {
+  connMsg.textContent = `DB size: ${size} entries`;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API wrappers — thin fetch() calls to each Flask route
+// API WRAPPERS
+// Each function corresponds to one Flask route on the Colab server.
+// They return the parsed JSON body or throw on HTTP errors.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * GET /api/health
- * Verify the server is reachable before showing the upload UI.
+ * Lightweight ping to check the server is reachable.
+ * Returns { status: "ok", face_db_size: <int> }.
  */
 async function apiHealth() {
   const res = await fetch(`${state.apiBase}/api/health`);
@@ -662,13 +955,23 @@ async function apiHealth() {
 
 /**
  * POST /api/upload
- * Send the chosen image file; receive the annotated frame + metadata.
+ * Send the image file together with the current slider values so the server
+ * uses the user-chosen detect/display resolutions for this upload.
  *
- * @param {File} file — the File object from the file-input / drop event
+ * Slider values are appended as plain form fields alongside the binary image
+ * data so no JSON serialisation is needed at the boundary.
+ *
+ * @param {File} file — image File object from the picker / drop event
+ * @returns {Object} JSON response containing session_id, face metadata, and
+ *                   base64-encoded annotated image + thumbnail.
  */
 async function apiUpload(file) {
   const form = new FormData();
   form.append("image", file);
+  // Pass slider values to the server so it can override its defaults
+  form.append("detect_max_px",  state.detectMaxPx);
+  form.append("display_max_px", state.displayMaxPx);
+
   const res = await fetch(`${state.apiBase}/api/upload`, {
     method: "POST",
     body: form,
@@ -679,9 +982,10 @@ async function apiUpload(file) {
 
 /**
  * POST /api/select
- * Tell the server which face is now selected; get back the updated frame.
+ * Tell the server which face to highlight; receive the updated annotated frame.
  *
  * @param {number} idx — 0-based face index
+ * @returns {Object} { frame_b64, thumb_b64, confidence }
  */
 async function apiSelect(idx) {
   const res = await fetch(`${state.apiBase}/api/select`, {
@@ -695,9 +999,11 @@ async function apiSelect(idx) {
 
 /**
  * POST /api/add_to_db
- * Embed the selected face and store it under the given label.
+ * Generate a Facenet512 embedding for the selected face and store it in
+ * the server's in-memory FACE_DB under the given label.
  *
- * @param {string} label — human-readable name / identifier
+ * @param {string} label — human-readable name / identifier for this face
+ * @returns {Object} { message, db_size }
  */
 async function apiAddToDb(label) {
   const res = await fetch(`${state.apiBase}/api/add_to_db`, {
@@ -715,7 +1021,9 @@ async function apiAddToDb(label) {
 
 /**
  * POST /api/identify
- * Embed the selected face and find its closest match in FACE_DB.
+ * Embed the selected face and cosine-search FACE_DB for the best match.
+ *
+ * @returns {Object} { match, similarity, message }
  */
 async function apiIdentify() {
   const res = await fetch(`${state.apiBase}/api/identify`, {
@@ -732,32 +1040,40 @@ async function apiIdentify() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Click-overlay: translate pixel click → face index
+// CLICK OVERLAY — translates mouse clicks on the image into face selections
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * After every upload or window resize the overlay canvas must match the
- * rendered size of #main-img (which is CSS-fluid, not fixed px).
- * We store face bounding boxes in display-image space (from the server),
- * then scale them to overlay-canvas space here.
+ * Resize the transparent canvas to exactly match the rendered size of #main-img.
+ *
+ * #main-img is CSS-fluid (width:100%), so its pixel dimensions change whenever
+ * the viewport resizes.  This must be called:
+ *   - after the annotated image loads for the first time
+ *   - whenever the window is resized
+ *
+ * The canvas has no drawn content — it is purely a hit-testing surface.
  */
 function resizeOverlay() {
   const rect = mainImg.getBoundingClientRect();
   clickOverlay.width  = rect.width;
   clickOverlay.height = rect.height;
   clickOverlay.style.position = "absolute";
-  clickOverlay.style.top   = "0";
-  clickOverlay.style.left  = "0";
+  clickOverlay.style.top    = "0";
+  clickOverlay.style.left   = "0";
   clickOverlay.style.width  = rect.width  + "px";
   clickOverlay.style.height = rect.height + "px";
   clickOverlay.style.cursor = "crosshair";
-  // Canvas is purely for hit-testing — keep it transparent
 }
 
 /**
- * Handle a click on the overlay canvas.
- * Scale the click from CSS-px space → display-image px space,
- * then check each face bounding box.
+ * Handle a mouse click on the transparent canvas overlay.
+ *
+ * Steps:
+ * 1. Convert the click's CSS-pixel position to display-image-pixel space using
+ *    scale factors derived from the canvas's rendered vs. logical dimensions.
+ * 2. Check each face bounding-box (stored in state.faceAreas in display-image
+ *    space) to find which face was clicked.
+ * 3. Call selectFace(i) if a hit is found.
  *
  * @param {MouseEvent} e
  */
@@ -765,13 +1081,12 @@ function onOverlayClick(e) {
   if (!state.faceAreas.length || state.busy) return;
 
   const rect = clickOverlay.getBoundingClientRect();
-  // Scale factors: display-image-px / CSS-rendered-px
+  // Scale from CSS-rendered px → display-image px
   const scaleX = state.dispW / rect.width;
   const scaleY = state.dispH / rect.height;
   const cx = (e.clientX - rect.left) * scaleX;
   const cy = (e.clientY - rect.top)  * scaleY;
 
-  // Test each face bounding box in display-image space
   for (let i = 0; i < state.faceAreas.length; i++) {
     const { x, y, w, h } = state.faceAreas[i];
     if (cx >= x && cx <= x + w && cy >= y && cy <= y + h) {
@@ -779,22 +1094,21 @@ function onOverlayClick(e) {
       return;
     }
   }
+  // No face hit — click ignored
 }
 
 clickOverlay.addEventListener("click", onOverlayClick);
+// Keep the overlay the same size as the image when the window resizes
 window.addEventListener("resize", resizeOverlay);
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core UI actions
+// STEP 1 — CONNECT
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Connect — validate and save the API base URL, ping /health.
- * Shows the upload card only after a successful connection.
- */
 btnConnect.addEventListener("click", async () => {
-  let url = apiUrlInput.value.trim().replace(/\/+$/, "");  // strip trailing /
+  // Strip trailing slashes from the pasted URL
+  let url = apiUrlInput.value.trim().replace(/\/+$/, "");
   if (!url) { showToast("⚠️ Please enter a URL first."); return; }
 
   btnConnect.disabled = true;
@@ -805,9 +1119,13 @@ btnConnect.addEventListener("click", async () => {
   try {
     state.apiBase = url;
     const data = await apiHealth();
+
+    // Mark as connected and show the current DB entry count
     connStatus.className = "status-pill pill-ok";
     connStatus.textContent = "Connected ✓";
-    connMsg.textContent = `DB size: ${data.face_db_size} entries`;
+    refreshDbCount(data.face_db_size);
+
+    // Reveal the upload + configure card
     uploadCard.style.display = "block";
     showToast("✅ Server connected!");
   } catch (err) {
@@ -821,11 +1139,19 @@ btnConnect.addEventListener("click", async () => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 2 — UPLOAD + DETECT
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Handle image file selection (from file picker or drag-and-drop).
- * Sends the image to /api/upload and populates the viewer.
+ * Handle a file selection — either from the file picker or a drag-and-drop.
  *
- * @param {File} file
+ * Shows the inline upload-zone spinner while the image is transferred and
+ * faces are being detected on the server.  On success, populates the viewer
+ * with the annotated image and metadata.
+ *
+ * @param {File} file — image File from a picker/drop event
  */
 async function handleFile(file) {
   if (!file || !file.type.startsWith("image/")) {
@@ -835,36 +1161,36 @@ async function handleFile(file) {
     showToast("⚠️ Connect to the server first."); return;
   }
 
-  showLoading("Uploading & detecting faces…");
+  // Show localised spinner inside the drop zone
+  showUploadLoading("Uploading & detecting faces…");
+
   try {
     const data = await apiUpload(file);
 
     if (data.error) {
-      hideLoading();
+      hideUploadLoading();
       showToast(`❌ ${data.error}`);
       return;
     }
 
     // ── Populate state from server response ──────────────────────────────
-    state.sessionId  = data.session_id;
-    state.faceCount  = data.face_count;
-    state.currentIdx = 0;
-    state.dispW      = data.disp_w;
-    state.dispH      = data.disp_h;
+    state.sessionId   = data.session_id;
+    state.faceCount   = data.face_count;
+    state.currentIdx  = 0;
+    state.dispW       = data.disp_w;
+    state.dispH       = data.disp_h;
+    // face_areas are bounding boxes in display-image pixel space, used for
+    // click-to-select hit testing in onOverlayClick()
+    state.faceAreas   = data.face_areas || [];
 
-    // The server returns bounding boxes as part of the upload payload.
-    // We reconstruct them client-side from face_areas if provided;
-    // otherwise we fall back to null (click-to-select won't work, nav still will).
-    state.faceAreas  = data.face_areas || [];
-
-    // ── Update image widgets ─────────────────────────────────────────────
+    // ── Render the annotated image and face thumbnail ────────────────────
     mainImg.src  = toDataUri(data.frame_b64);
     thumbImg.src = toDataUri(data.thumb_b64);
 
     refreshCounter(data.confidence);
     refreshNavButtons();
 
-    // Show viewer, resize the click overlay once the image has rendered
+    // Make the viewer visible; resize the canvas overlay once the image loads
     viewer.style.display = "block";
     mainImg.onload = () => { resizeOverlay(); mainImg.onload = null; };
 
@@ -874,15 +1200,16 @@ async function handleFile(file) {
   } catch (err) {
     showToast(`❌ Upload failed: ${err}`);
   } finally {
-    hideLoading();
+    // Always hide the spinner, even on error
+    hideUploadLoading();
   }
 }
 
-// Trigger file dialog when drop-zone is clicked
+// Clicking the drop zone opens the native file picker
 dropZone.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
 
-// Drag-and-drop support
+// Drag-and-drop: prevent browser default (opening the file in a new tab)
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("drag-over");
@@ -895,9 +1222,16 @@ dropZone.addEventListener("drop", (e) => {
 });
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 3a — FACE SELECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Switch the highlighted face to *idx*.
- * Calls /api/select and updates the main image + thumbnail.
+ * Switch the highlighted face to *idx* by calling /api/select.
+ *
+ * The server re-renders the annotated image with the new selection highlighted
+ * and returns an updated thumbnail.  Nav buttons are disabled during the
+ * request (state.busy) to prevent queuing duplicate requests.
  *
  * @param {number} idx — 0-based face index
  */
@@ -912,7 +1246,7 @@ async function selectFace(idx) {
     mainImg.src  = toDataUri(data.frame_b64);
     thumbImg.src = toDataUri(data.thumb_b64);
     refreshCounter(data.confidence);
-    // Close the DB name row if it was open
+    // Collapse the name input if it was open
     dbNameRow.classList.remove("visible");
   } catch (err) {
     showToast(`❌ Select failed: ${err}`);
@@ -922,42 +1256,62 @@ async function selectFace(idx) {
   }
 }
 
-// Previous / Next navigation
+// ── Previous face ────────────────────────────────────────────────────────────
 btnPrev.addEventListener("click", () =>
   selectFace((state.currentIdx - 1 + state.faceCount) % state.faceCount)
 );
-btnNext.addEventListener("click", () =>
-  selectFace((state.currentIdx + 1) % state.faceCount)
-);
+
+// ── Next face — button shows a tiny inline spinner while loading ─────────────
+btnNext.addEventListener("click", async () => {
+  if (state.busy) return;
+  setBtnLoading(btnNext);
+  await selectFace((state.currentIdx + 1) % state.faceCount);
+  clearBtnLoading(btnNext);
+  btnNext.disabled = state.faceCount <= 1;
+});
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Add to DB — two-step UX: first click shows name input, second saves
+// STEP 3b — ADD TO DB
+// Two-step UX: first click reveals the name input; second click (Save) saves.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Toggle the name input row on/off
 btnAddDb.addEventListener("click", () => {
-  // Toggle visibility of the inline name input
   dbNameRow.classList.toggle("visible");
   if (dbNameRow.classList.contains("visible")) {
     dbNameInput.focus();
   }
 });
 
+// Cancel — hide the name input and clear any typed text
 btnCancelAdd.addEventListener("click", () => {
   dbNameRow.classList.remove("visible");
   dbNameInput.value = "";
 });
 
-/** Actually send the face to the server and store it in FACE_DB. */
+/**
+ * Send the selected face to /api/add_to_db with the typed label.
+ *
+ * Shows a spinner on the Save button (not a full-page overlay) while the
+ * embedding is generated on the server.  On success, refreshes the DB entry
+ * count displayed in the connection status bar.
+ */
 async function confirmAddToDb() {
   const label = dbNameInput.value.trim();
   if (!label) { showToast("⚠️ Please enter a name."); return; }
 
-  showLoading("Generating embedding…");
+  // Inline button spinner — only the Save button is visually busy
+  setBtnLoading(btnConfirmAdd);
+
   try {
     const data = await apiAddToDb(label);
     if (data.error) throw new Error(data.error);
+
+    // Log result and update the live DB count in the connection bar
     logResult(`${data.message}\nDatabase now has ${data.db_size} entries.`);
+    refreshDbCount(data.db_size);   // ← keeps the count accurate without reconnecting
+
     showToast(`✅ ${label} added!`);
     dbNameInput.value = "";
     dbNameRow.classList.remove("visible");
@@ -965,30 +1319,36 @@ async function confirmAddToDb() {
     showToast(`❌ ${err}`);
     logResult(`Error: ${err}`);
   } finally {
-    hideLoading();
+    clearBtnLoading(btnConfirmAdd);
   }
 }
 
 btnConfirmAdd.addEventListener("click", confirmAddToDb);
-// Allow pressing Enter inside the name field to confirm
+// Allow pressing Enter in the name field as a shortcut for Save
 dbNameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") confirmAddToDb();
 });
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Identify — embed the current face and search the DB
+// STEP 3c — IDENTIFY
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Identify the currently selected face by cosine-searching the in-memory FACE_DB.
+ *
+ * The Identify button shows its own inline spinner while the server generates
+ * the embedding and searches the database.  No full-page overlay.
+ */
 btnIdentify.addEventListener("click", async () => {
   if (!state.sessionId) { showToast("⚠️ Upload an image first."); return; }
 
-  showLoading("Identifying…");
+  setBtnLoading(btnIdentify);
+
   try {
     const data = await apiIdentify();
     if (data.error) throw new Error(data.error);
 
-    // Build a nicely formatted result string
     const lines = [
       data.message,
       `Similarity score: ${(data.similarity * 100).toFixed(1)}%`,
@@ -1002,16 +1362,15 @@ btnIdentify.addEventListener("click", async () => {
     showToast(`❌ Identify failed: ${err}`);
     logResult(`Error: ${err}`);
   } finally {
-    hideLoading();
+    clearBtnLoading(btnIdentify);
   }
 });
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// On load — pre-fill the URL input if a query-param is provided.
-//
+// QUERY-PARAM PRE-FILL
+// Allow sharing a link that pre-populates the server URL field.
 // Usage: https://yourname.github.io/face-browser/?api=https://xxx.trycloudflare.com
-// This lets you share a direct link that pre-populates the server field.
 // ─────────────────────────────────────────────────────────────────────────────
 
 (function prefillFromQueryParam() {
@@ -1019,7 +1378,7 @@ btnIdentify.addEventListener("click", async () => {
   const apiParam = params.get("api");
   if (apiParam) {
     apiUrlInput.value = apiParam;
-    // Optionally auto-connect:
+    // Uncomment the next line to auto-connect when the param is present:
     // btnConnect.click();
   }
 })();
