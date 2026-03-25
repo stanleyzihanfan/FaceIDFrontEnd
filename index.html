@@ -3,16 +3,7 @@
 <head>
 <!--
   ╔══════════════════════════════════════════════════════════════════════════════╗
-  ║           FACE BROWSER — GITHUB PAGES FRONTEND  (index.html)                 ║
-  ║                                                                              ║
-  ║  Dynamic render system:                                                      ║
-  ║  • After upload, /api/render_all kicks off background rendering of every     ║
-  ║    face frame on the server.                                                 ║
-  ║  • The UI polls /api/render_status and marks each face slot ready/pending.   ║
-  ║  • Navigation is INSTANT for ready frames (served from client-side cache).   ║
-  ║  • Navigating to a pending frame shows a toast and does nothing.             ║
-  ║  • Moving the Display Max Px slider calls /api/set_display_px (debounced),   ║
-  ║    which re-renders all frames at the new resolution in the background.      ║
+  ║           FACE BROWSER — GITHUB PAGES FRONTEND  (index.html)               ║
   ╚══════════════════════════════════════════════════════════════════════════════╝
 -->
 <meta charset="UTF-8" />
@@ -23,9 +14,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 
 <style>
-/* ═══════════════════════════════════════════════════════════════════════════
-   CSS CUSTOM PROPERTIES
-   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
   --bg:          #0a0c10;
   --surface:     #12161e;
@@ -79,7 +67,7 @@ header p { color: var(--text-muted); font-size: 12px; }
   margin-right: 8px; flex-shrink: 0;
 }
 
-/* ── Form ─────────────────────────────────────────────────────────────────── */
+/* ── Form controls ────────────────────────────────────────────────────────── */
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 input[type="text"], input[type="url"] {
   flex: 1; min-width: 200px; background: var(--surface2); border: 1px solid var(--border);
@@ -106,7 +94,7 @@ input[type="range"]::-moz-range-thumb {
   width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
   box-shadow: 0 0 6px rgba(0,255,204,.5); cursor: pointer; border: none;
 }
-/* Dimmed while a re-render is in progress */
+/* Dimmed + non-interactive while a re-render is in flight */
 input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -123,11 +111,11 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 .btn-primary { background: var(--accent); color: #000; }
 .btn-primary:hover:not(:disabled) { box-shadow: 0 0 14px rgba(0,255,204,.4); }
 .btn-purple  { background: #6610f2; color: #fff; }
-.btn-purple:hover:not(:disabled) { box-shadow: 0 0 14px rgba(102,16,242,.45); }
+.btn-purple:hover:not(:disabled)  { box-shadow: 0 0 14px rgba(102,16,242,.45); }
 .btn-green   { background: #198754; color: #fff; }
-.btn-green:hover:not(:disabled)  { box-shadow: 0 0 14px rgba(25,135,84,.45); }
+.btn-green:hover:not(:disabled)   { box-shadow: 0 0 14px rgba(25,135,84,.45); }
 .btn-nav     { background: #0d6efd; color: #fff; padding: 9px 22px; }
-.btn-nav:hover:not(:disabled)    { box-shadow: 0 0 14px rgba(13,110,253,.45); }
+.btn-nav:hover:not(:disabled)     { box-shadow: 0 0 14px rgba(13,110,253,.45); }
 .btn-danger  { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .btn-spinner {
   display: none; width: 14px; height: 14px;
@@ -143,49 +131,92 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 .pill-err     { background: rgba(255,68,68,.15); color: #ff4444; border: 1px solid #ff4444; }
 .pill-neutral { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
 
-/* ── Viewer ───────────────────────────────────────────────────────────────── */
+/* ── Viewer layout ────────────────────────────────────────────────────────── */
 #viewer { display: none; }
 #viewer-inner { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 
 /* ── Image area ───────────────────────────────────────────────────────────── */
-#image-wrap {
-  position: relative; flex: 1 1 300px; max-width: 900px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden; cursor: crosshair;
-}
-#main-img { display: block; width: 100%; height: auto; }
-/* Transparent canvas exactly overlapping the image — used for click hit-testing */
-#click-overlay { position: absolute; inset: 0; }
-
-/* ── Re-render shimmer overlay ───────────────────────────────────────────── */
 /*
-  Sits above the image while a /api/set_display_px call is in progress.
-  Semi-transparent so the old frame remains visible underneath — reduces
-  perceived jank compared to a fully blocking overlay.
+  IMPORTANT: overflow must NOT be hidden here, and height must be auto-driven
+  by #main-img.  The click overlay is pointer-events:none so it never affects
+  layout — it's purely a hit-test surface rendered on top via position:absolute.
+  Previously overflow:hidden was causing the image to be cropped.
+*/
+#image-wrap {
+  position: relative;     /* anchor for absolute children */
+  flex: 1 1 300px;
+  max-width: 900px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* NO overflow:hidden — that was cropping the image */
+  cursor: crosshair;
+  /* Height is entirely driven by #main-img's natural height */
+}
+
+#main-img {
+  display: block;
+  width: 100%;
+  height: auto;           /* always show the full image, never crop */
+}
+
+/*
+  Transparent canvas overlay for click-to-select.
+  pointer-events:none means the canvas never captures mouse events itself;
+  the click listener is attached to the canvas in JS but the CSS property
+  ensures the element doesn't participate in layout or block the image resize.
+  position:absolute + inset:0 covers the image but doesn't add to the
+  containing block's height.
+*/
+#click-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  pointer-events: none;   /* layout-transparent; JS adds its own listener */
+  cursor: crosshair;
+}
+
+/* ── Re-render shimmer overlay ────────────────────────────────────────────── */
+/*
+  Semi-transparent cover shown while /api/set_display_px is running.
+  Also position:absolute so it doesn't contribute to layout height.
+  Removed once the current face's frame arrives from the server.
 */
 #rerender-overlay {
-  display: none; position: absolute; inset: 0;
-  background: rgba(10,12,16,.55); backdrop-filter: blur(2px);
-  border-radius: var(--radius); z-index: 8;
+  display: none;
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(10,12,16,.55);
+  backdrop-filter: blur(2px);
+  border-radius: var(--radius);
+  z-index: 8;
   align-items: center; justify-content: center; flex-direction: column; gap: 8px;
 }
 #rerender-overlay.active { display: flex; }
 #rerender-overlay .spinner { width: 24px; height: 24px; border-width: 2px; }
-#rerender-overlay p { font-family: var(--font-head); font-size: 10px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+#rerender-overlay p {
+  font-family: var(--font-head); font-size: 10px; font-weight: 700;
+  color: var(--accent); letter-spacing: 1px;
+}
 
 /* ── Side panel ───────────────────────────────────────────────────────────── */
 #side-panel { flex: 0 0 200px; display: flex; flex-direction: column; gap: 12px; }
-#thumb-img { width: 100%; border-radius: var(--radius); border: 2px solid var(--accent); box-shadow: 0 0 16px rgba(0,255,204,.25); }
+
+#thumb-img {
+  width: 100%; border-radius: var(--radius);
+  border: 2px solid var(--accent); box-shadow: 0 0 16px rgba(0,255,204,.25);
+  display: block;
+}
+
 #face-counter { font-size: 12px; color: var(--text-muted); text-align: center; }
 #face-counter strong { color: var(--accent); }
 
 /* ── Face-dot status indicators ──────────────────────────────────────────── */
 /*
-  A row of small circles below the face counter — one per detected face.
-    Cyan filled     = frame rendered and cached (instant navigation)
-    Orange pulsing  = frame currently being rendered on the server
-    Dark outline    = not yet started / pending in queue
-    Large ring      = the currently selected face
+  One dot per face.
+  cyan filled    = frame + thumb cached on client → instant, zero-latency nav
+  orange pulsing = server is actively rendering this face right now
+  dark outline   = queued but not yet started
+  large ring     = currently selected face
 */
 #face-dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
 .face-dot {
@@ -197,14 +228,10 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 .face-dot.ready   { background: var(--accent); border-color: var(--accent); }
 .face-dot.active  { transform: scale(1.55); box-shadow: 0 0 6px rgba(0,255,204,.6); }
 .face-dot.pending { background: var(--warn); border-color: var(--warn); animation: pulse .9s ease-in-out infinite; }
-@keyframes pulse  { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+@keyframes pulse  { 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
 /* ── Render progress bar ─────────────────────────────────────────────────── */
-/*
-  Thin horizontal strip below the image area.
-  Fills left-to-right as background frame rendering completes.
-  Hidden once all frames are ready.
-*/
+/* Thin strip below the image; fills as background rendering completes. */
 #render-progress-wrap { margin-top: 6px; display: none; }
 #render-progress-bar-bg { width: 100%; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
 #render-progress-bar {
@@ -234,11 +261,11 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 #drop-zone input { display: none; }
 #drop-zone svg   { margin-bottom: 10px; }
 
-/* ── DB name row ──────────────────────────────────────────────────────────── */
+/* ── DB name input row ────────────────────────────────────────────────────── */
 #db-name-row { display: none; gap: 8px; align-items: center; flex-wrap: wrap; }
 #db-name-row.visible { display: flex; }
 
-/* ── Inline loading overlay ──────────────────────────────────────────────── */
+/* ── Inline loading overlay (covers its parent) ──────────────────────────── */
 .inline-loading {
   display: none; position: absolute; inset: 0; background: rgba(10,12,16,.75);
   backdrop-filter: blur(3px); border-radius: var(--radius); z-index: 10;
@@ -249,7 +276,7 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .inline-loading p { font-family: var(--font-head); font-weight: 700; font-size: 12px; color: var(--accent); letter-spacing: 1px; }
 
-/* ── Toast ────────────────────────────────────────────────────────────────── */
+/* ── Toast notification ───────────────────────────────────────────────────── */
 #toast {
   position: fixed; bottom: 28px; right: 28px; background: var(--surface);
   border: 1px solid var(--border); border-left: 3px solid var(--accent);
@@ -257,7 +284,7 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
   transform: translateY(80px); opacity: 0; transition: all .3s ease;
   z-index: 1000; max-width: 320px;
 }
-#toast.show      { transform: translateY(0); opacity: 1; }
+#toast.show       { transform: translateY(0); opacity: 1; }
 #toast.warn-toast { border-left-color: var(--warn); }
 
 @media (max-width: 680px) {
@@ -275,31 +302,28 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
     <p>Powered by DeepFace · MTCNN · Colab + Cloudflare</p>
   </header>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       STEP 1 — Connect
-       ════════════════════════════════════════════════════════════════════ -->
+  <!-- STEP 1 — Connect ──────────────────────────────────────────────────── -->
   <div class="card" id="connect-card">
     <div class="card-title"><span class="step-badge">1</span>Connect to Colab Server</div>
     <div class="row">
-      <input type="url" id="api-url-input" placeholder="https://xxxx-xxxx.trycloudflare.com" spellcheck="false" autocomplete="off" />
+      <input type="url" id="api-url-input" placeholder="https://xxxx-xxxx.trycloudflare.com"
+             spellcheck="false" autocomplete="off" />
       <button class="btn btn-primary" id="btn-connect">Connect</button>
     </div>
     <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
       <span id="conn-status" class="status-pill pill-neutral">Not connected</span>
-      <span id="conn-msg"    style="font-size:12px;color:var(--text-muted)"></span>
+      <span id="conn-msg" style="font-size:12px;color:var(--text-muted)"></span>
     </div>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       STEP 2 — Configure & Upload
-       ════════════════════════════════════════════════════════════════════ -->
+  <!-- STEP 2 — Configure & Upload ────────────────────────────────────────── -->
   <div class="card" id="upload-card" style="display:none">
     <div class="card-title"><span class="step-badge">2</span>Configure &amp; Upload Image</div>
 
     <div class="row" style="margin-bottom:16px;gap:20px;">
 
-      <!-- Detect Max Px — only affects the detection pass on upload.
-           Changing it after upload has no effect until the next upload. -->
+      <!-- Detect Max Px — only affects the detection pass at upload time.
+           Changing it after an upload has no effect until the next upload. -->
       <div class="slider-group">
         <div class="slider-label">
           <span>Detect Max Px <em style="color:var(--text-muted)">(affects next upload)</em></span>
@@ -311,10 +335,11 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
         </div>
       </div>
 
-      <!-- Display Max Px — LIVE: moving this slider after upload fires
-           /api/set_display_px (debounced 400ms) which triggers a full
-           background re-render at the new resolution. The slider is
-           disabled while the re-render is running to prevent spamming. -->
+      <!-- Display Max Px — LIVE after upload.  Moving the slider fires
+           /api/set_display_px (debounced 400 ms), which re-renders all frames
+           at the new resolution in the background.  The slider is dimmed while
+           the re-render is running.  Nav unlocks as soon as the current face's
+           fresh frame arrives — it does NOT wait for all faces to finish. -->
       <div class="slider-group">
         <div class="slider-label">
           <span>Display Max Px <em style="color:var(--text-muted)">(live — re-renders on change)</em></span>
@@ -328,6 +353,8 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 
     </div>
 
+    <!-- Drop zone — contains its own inline loading overlay so the spinner
+         covers only this element during upload/detection. -->
     <div id="drop-zone">
       <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
            stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -345,31 +372,40 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
     </div>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       STEP 3 — Face Viewer
-       ════════════════════════════════════════════════════════════════════ -->
+  <!-- STEP 3 — Face Viewer ───────────────────────────────────────────────── -->
   <div id="viewer" class="card">
     <div class="card-title"><span class="step-badge">3</span>Browse Detected Faces</div>
 
     <div id="viewer-inner">
 
-      <!-- Left column: annotated image + render progress bar -->
+      <!-- Left column: image + progress bar -->
       <div style="flex:1 1 300px;max-width:900px;display:flex;flex-direction:column;gap:6px;">
 
-        <!-- The annotated image. #click-overlay is a transparent canvas on top
-             that handles click-to-select. #rerender-overlay is a semi-transparent
-             shimmer shown while /api/set_display_px is running. -->
+        <!--
+          #image-wrap must NOT have overflow:hidden (that was cropping the image).
+          Height is driven naturally by #main-img's height:auto.
+          #click-overlay and #rerender-overlay are position:absolute and do
+          NOT contribute to the container's height.
+        -->
         <div id="image-wrap">
           <img id="main-img" alt="Annotated photo" />
+
+          <!--
+            Transparent canvas for click-to-select hit testing.
+            pointer-events:none in CSS — the click listener is added in JS.
+            This way the canvas never blocks the image from resizing naturally.
+          -->
           <canvas id="click-overlay"></canvas>
+
+          <!-- Shimmer overlay shown while /api/set_display_px is running.
+               Fades once the current face's new frame arrives. -->
           <div id="rerender-overlay">
             <div class="spinner"></div>
             <p>Re-rendering…</p>
           </div>
         </div>
 
-        <!-- Progress bar — fills as background frames finish rendering.
-             Hidden once all frames are ready. -->
+        <!-- Thin progress bar — fills as background frame renders finish. -->
         <div id="render-progress-wrap">
           <div id="render-progress-bar-bg">
             <div id="render-progress-bar"></div>
@@ -379,15 +415,13 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 
       </div>
 
-      <!-- Right column: thumbnail + controls + per-face dots -->
+      <!-- Right column: thumbnail + controls -->
       <div id="side-panel">
         <div class="card-title" style="margin-bottom:4px">Selected face</div>
         <img id="thumb-img" alt="Face thumbnail" />
         <div id="face-counter">–</div>
 
-        <!-- One dot per face. Cyan = cached & ready for instant nav.
-             Orange pulsing = server is actively rendering this frame.
-             Dark = queued but not started. Large ring = selected. -->
+        <!-- Per-face dots: cyan=cached, orange-pulse=rendering, dark=pending -->
         <div id="face-dots"></div>
 
         <div id="nav-row">
@@ -422,7 +456,7 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
     </div>
   </div>
 
-</div>
+</div><!-- /app -->
 <div id="toast"></div>
 
 <script>
@@ -433,37 +467,35 @@ input[type="range"].rendering { opacity: 0.45; pointer-events: none; }
 // ─────────────────────────────────────────────────────────────────────────────
 
 const state = {
-  apiBase:      "",       // Cloudflare tunnel base URL (no trailing slash)
-  sessionId:    null,     // UUID assigned by server after upload
-  faceCount:    0,        // total detected faces in the current image
-  currentIdx:   0,        // 0-based index of the currently displayed face
-  faceAreas:    [],       // [{x,y,w,h}] in display-image px — for click hit-testing
-  dispW:        0,        // display image width in px  (used for click scaling)
-  dispH:        0,        // display image height in px
-  busy:         false,    // true while a selectFace() request is in flight
-  detectMaxPx:  1280,     // value of the Detect Max Px slider
-  displayMaxPx: 900,      // value of the Display Max Px slider
+  apiBase:       "",          // Cloudflare tunnel base URL (no trailing slash)
+  sessionId:     null,        // UUID assigned by server after upload
+  faceCount:     0,           // total detected faces
+  currentIdx:    0,           // currently selected face index (0-based)
+  faceAreas:     [],          // [{x,y,w,h}] in display-image px for click hit-test
+  dispW:         0,           // display image width px (for click-coord scaling)
+  dispH:         0,
+  busy:          false,       // true while a selectFace() call is in flight
+  detectMaxPx:   1280,
+  displayMaxPx:  900,
 
-  // ── Client-side frame cache ──────────────────────────────────────────────
-  // frameCache[i] = base64 PNG string once the server has rendered it, or null.
+  // ── Client-side render cache ──────────────────────────────────────────────
+  // Both arrays are indexed by face index.
+  // Values are base64 strings once ready, null while pending.
   // Populated incrementally by the status-poll loop.
-  // Allows instant (no-round-trip) navigation to cached faces.
-  frameCache:   [],
+  frameCache:    [],          // annotated frame PNGs
+  thumbCache:    [],          // thumbnail PNGs
 
-  // Set of face indices that have been confirmed ready by the server.
-  // Using a Set for O(1) membership testing in isFrameReady().
-  readySet:     new Set(),
+  // Set of face indices confirmed ready by the server (O(1) lookup).
+  readySet:      new Set(),
 
-  // Interval ID for the background render-status polling loop.
-  // Stored so we can clearInterval() when done or when a re-render starts.
+  // Polling interval ID — stored so we can cancel it.
   pollIntervalId: null,
 
-  // True while a /api/set_display_px re-render is running.
-  // Blocks navigation and slider input during the resolution switch.
-  rerendering: false,
+  // True while a /api/set_display_px re-render is blocking navigation.
+  // Cleared as soon as the CURRENT face's frame arrives (not when all done).
+  rerendering:   false,
 
-  // setTimeout ID for debouncing the display-px slider.
-  // Prevents a new API call on every pixel of slider movement.
+  // Debounce timer for the display-px slider.
   displayPxDebounceTimer: null,
 };
 
@@ -472,39 +504,39 @@ const state = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const $ = (id) => document.getElementById(id);
-const apiUrlInput     = $("api-url-input");
-const btnConnect      = $("btn-connect");
-const connStatus      = $("conn-status");
-const connMsg         = $("conn-msg");
-const uploadCard      = $("upload-card");
-const dropZone        = $("drop-zone");
-const fileInput       = $("file-input");
-const detectSlider    = $("detect-slider");
-const displaySlider   = $("display-slider");
-const detectVal       = $("detect-val");
-const displayVal      = $("display-val");
-const viewer          = $("viewer");
-const mainImg         = $("main-img");
-const clickOverlay    = $("click-overlay");
-const thumbImg        = $("thumb-img");
-const faceCounter     = $("face-counter");
-const faceDots        = $("face-dots");
-const btnPrev         = $("btn-prev");
-const btnNext         = $("btn-next");
-const btnAddDb        = $("btn-add-db");
-const dbNameRow       = $("db-name-row");
-const dbNameInput     = $("db-name-input");
-const btnConfirmAdd   = $("btn-confirm-add");
-const btnCancelAdd    = $("btn-cancel-add");
-const btnIdentify     = $("btn-identify");
-const resultBox       = $("result-box");
-const uploadLoading   = $("upload-loading");
-const uploadLoadingMsg= $("upload-loading-msg");
-const rerenderOverlay = $("rerender-overlay");
+const apiUrlInput      = $("api-url-input");
+const btnConnect       = $("btn-connect");
+const connStatus       = $("conn-status");
+const connMsg          = $("conn-msg");
+const uploadCard       = $("upload-card");
+const dropZone         = $("drop-zone");
+const fileInput        = $("file-input");
+const detectSlider     = $("detect-slider");
+const displaySlider    = $("display-slider");
+const detectVal        = $("detect-val");
+const displayVal       = $("display-val");
+const viewer           = $("viewer");
+const mainImg          = $("main-img");
+const clickOverlay     = $("click-overlay");
+const thumbImg         = $("thumb-img");
+const faceCounter      = $("face-counter");
+const faceDots         = $("face-dots");
+const btnPrev          = $("btn-prev");
+const btnNext          = $("btn-next");
+const btnAddDb         = $("btn-add-db");
+const dbNameRow        = $("db-name-row");
+const dbNameInput      = $("db-name-input");
+const btnConfirmAdd    = $("btn-confirm-add");
+const btnCancelAdd     = $("btn-cancel-add");
+const btnIdentify      = $("btn-identify");
+const resultBox        = $("result-box");
+const uploadLoading    = $("upload-loading");
+const uploadLoadingMsg = $("upload-loading-msg");
+const rerenderOverlay  = $("rerender-overlay");
 const renderProgressWrap  = $("render-progress-wrap");
 const renderProgressBar   = $("render-progress-bar");
 const renderProgressLabel = $("render-progress-label");
-const toast           = $("toast");
+const toast            = $("toast");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITIES
@@ -512,19 +544,16 @@ const toast           = $("toast");
 
 const toDataUri = (b64) => `data:image/png;base64,${b64}`;
 
-function showUploadLoading(msg = "Processing…") { uploadLoadingMsg.textContent = msg; uploadLoading.classList.add("active"); }
+function showUploadLoading(msg = "Processing…") {
+  uploadLoadingMsg.textContent = msg;
+  uploadLoading.classList.add("active");
+}
 function hideUploadLoading() { uploadLoading.classList.remove("active"); }
 
-function setBtnLoading(btn)   { btn.classList.add("loading");    btn.disabled = true;  }
+function setBtnLoading(btn)   { btn.classList.add("loading");    btn.disabled = true; }
 function clearBtnLoading(btn) { btn.classList.remove("loading"); btn.disabled = false; }
 
 let toastTimer = null;
-/**
- * Show a toast notification.
- * @param {string}  msg
- * @param {number}  duration — ms before auto-dismiss
- * @param {boolean} warn     — if true, use orange warning border style
- */
 function showToast(msg, duration = 3000, warn = false) {
   toast.textContent = msg;
   toast.classList.toggle("warn-toast", warn);
@@ -533,10 +562,14 @@ function showToast(msg, duration = 3000, warn = false) {
   toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
 }
 
-function logResult(line)  { resultBox.textContent = line; }
+function logResult(line) { resultBox.textContent = line; }
 function refreshDbCount(n) { connMsg.textContent = `DB size: ${n} entries`; }
 
 function refreshNavButtons() {
+  // Nav is blocked only while busy OR while waiting for the current face's
+  // fresh frame after a display-px change (state.rerendering).
+  // Once the current face is ready again, state.rerendering is cleared and
+  // navigation opens back up — even if other faces are still rendering.
   const blocked = state.faceCount <= 1 || state.busy || state.rerendering;
   btnPrev.disabled = blocked;
   btnNext.disabled = blocked;
@@ -551,11 +584,6 @@ function refreshCounter(conf) {
 // FACE-DOT INDICATORS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * (Re)create the row of per-face status dots.
- * Called once after upload and again at the start of every re-render cycle
- * to reset all dots to the dark "pending" state.
- */
 function buildFaceDots() {
   faceDots.innerHTML = "";
   for (let i = 0; i < state.faceCount; i++) {
@@ -563,7 +591,6 @@ function buildFaceDots() {
     dot.className   = "face-dot";
     dot.title       = `Face ${i + 1}`;
     dot.dataset.idx = i;
-    // Clicking a ready dot directly navigates to that face
     dot.addEventListener("click", () => {
       if (state.readySet.has(i)) selectFace(i);
       else showToast(`⏳ Face ${i+1} is still rendering — please wait`, 2500, true);
@@ -572,21 +599,15 @@ function buildFaceDots() {
   }
 }
 
-/**
- * Update the CSS class on a single dot to reflect its render state.
- * @param {number} idx
- * @param {'pending'|'rendering'|'ready'} status
- */
 function updateDotState(idx, status) {
   const dot = faceDots.children[idx];
   if (!dot) return;
   dot.classList.remove("pending", "ready");
   if (status === "ready")     dot.classList.add("ready");
-  if (status === "rendering") dot.classList.add("pending");  // orange pulse
+  if (status === "rendering") dot.classList.add("pending"); // orange pulse
   dot.classList.toggle("active", idx === state.currentIdx);
 }
 
-/** Move the "active" ring to the dot at *idx*. */
 function setActiveDot(idx) {
   Array.from(faceDots.children).forEach((d, i) => d.classList.toggle("active", i === idx));
 }
@@ -606,6 +627,62 @@ function setRenderProgress(done, total) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CLICK OVERLAY — canvas hit-test for click-to-select
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resize the overlay canvas to match the image's current rendered dimensions.
+ * Must be called after the image loads and on window resize.
+ * pointer-events:none is set in CSS; the JS click listener is added to the
+ * canvas element but the CSS property prevents it from blocking layout.
+ */
+function resizeOverlay() {
+  const rect = mainImg.getBoundingClientRect();
+  // Set canvas logical dimensions (determines coordinate space)
+  clickOverlay.width  = rect.width;
+  clickOverlay.height = rect.height;
+  // Match CSS size to rendered image size
+  clickOverlay.style.width  = rect.width  + "px";
+  clickOverlay.style.height = rect.height + "px";
+  // Also size the rerender overlay to match
+  rerenderOverlay.style.width  = rect.width  + "px";
+  rerenderOverlay.style.height = rect.height + "px";
+}
+
+/**
+ * Translate a click on the overlay canvas to a face index via bounding-box
+ * hit testing, then call selectFace().
+ */
+function onOverlayClick(e) {
+  if (!state.faceAreas.length || state.busy || state.rerendering) return;
+  const rect   = clickOverlay.getBoundingClientRect();
+  const scaleX = state.dispW / rect.width;
+  const scaleY = state.dispH / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top)  * scaleY;
+  for (let i = 0; i < state.faceAreas.length; i++) {
+    const { x, y, w, h } = state.faceAreas[i];
+    if (cx >= x && cx <= x + w && cy >= y && cy <= y + h) {
+      if (!state.readySet.has(i)) {
+        showToast(`⏳ Face ${i+1} is still rendering — please wait`, 2500, true);
+        return;
+      }
+      selectFace(i);
+      return;
+    }
+  }
+}
+
+// pointer-events:none is set in CSS, but we still attach the listener to the
+// canvas element so the coordinate maths uses the canvas's bounding rect.
+// We re-enable pointer events temporarily via the listener only — actually,
+// we just attach to the canvas and set pointer-events:auto via JS so clicks
+// pass through when idle but the canvas never affects layout.
+clickOverlay.style.pointerEvents = "auto";
+clickOverlay.addEventListener("click", onOverlayClick);
+window.addEventListener("resize", resizeOverlay);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // API WRAPPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -615,7 +692,6 @@ async function apiHealth() {
   return r.json();
 }
 
-/** Upload the image file together with slider values as form fields. */
 async function apiUpload(file) {
   const f = new FormData();
   f.append("image", file);
@@ -626,11 +702,6 @@ async function apiUpload(file) {
   return r.json();
 }
 
-/**
- * POST /api/render_all
- * Ask the server to pre-render ALL face-selection frames in the background.
- * Returns immediately — rendering is non-blocking on the server.
- */
 async function apiRenderAll() {
   const r = await fetch(`${state.apiBase}/api/render_all`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -641,19 +712,20 @@ async function apiRenderAll() {
 }
 
 /**
- * GET /api/render_status?session_id=<id>
- * Returns which frames finished rendering since the last poll.
- *
- * Response shape:
+ * GET /api/render_status
+ * Returns:
  * {
- *   ready:         [0, 2, …],        // all finished indices
- *   rendering_now: [1],              // indices currently in progress
+ *   ready:         [0, 1, …],
+ *   rendering_now: [2],
  *   total:         N,
- *   frames:        { "1": "b64…" }  // NEW frames since last poll only
+ *   frames: {
+ *     "1": { frame_b64: "…", thumb_b64: "…" },   // only NEW frames
+ *     …
+ *   }
  * }
  *
- * The server tracks a per-session "delivered" set so it never re-sends frames
- * that were already returned in a previous poll response.
+ * Each face's data is delivered once and never repeated — the server tracks
+ * delivered_indices to avoid re-sending large payloads.
  */
 async function apiRenderStatus() {
   const r = await fetch(
@@ -663,7 +735,7 @@ async function apiRenderStatus() {
   return r.json();
 }
 
-/** Select a face — returns updated frame + thumbnail from the server. */
+/** Called only on cache miss (shouldn't happen in normal flow). */
 async function apiSelect(idx) {
   const r = await fetch(`${state.apiBase}/api/select`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -691,34 +763,13 @@ async function apiIdentify() {
   return r.json();
 }
 
-/**
- * POST /api/set_display_px
- * Tell the server to rebuild the display image at *displayMaxPx* resolution
- * and re-render all face frames.
- *
- * The server:
- *   1. Re-creates display_img and display_faceobjs at the new resolution.
- *   2. Clears the render cache for this session.
- *   3. Immediately renders the currently-selected face's frame and returns it
- *      so the UI can show something right away.
- *   4. Kicks off background rendering of all other frames.
- *
- * Response:
- * {
- *   disp_w, disp_h,
- *   current_frame_b64,   // freshly rendered at new resolution, currently selected face
- *   thumb_b64,
- *   confidence,
- *   face_areas           // bounding boxes recalculated at new resolution
- * }
- */
 async function apiSetDisplayPx(displayMaxPx) {
   const r = await fetch(`${state.apiBase}/api/set_display_px`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      session_id:          state.sessionId,
-      display_max_px:      displayMaxPx,
-      current_face_index:  state.currentIdx,
+      session_id:         state.sessionId,
+      display_max_px:     displayMaxPx,
+      current_face_index: state.currentIdx,
     }),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -726,101 +777,64 @@ async function apiSetDisplayPx(displayMaxPx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLICK OVERLAY
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Resize the transparent click-overlay canvas to match the rendered image size.
- * Must be called every time the image changes dimensions (after load, on resize).
- */
-function resizeOverlay() {
-  const rect = mainImg.getBoundingClientRect();
-  clickOverlay.width  = rect.width;
-  clickOverlay.height = rect.height;
-  Object.assign(clickOverlay.style, {
-    position: "absolute", top: "0", left: "0",
-    width: rect.width + "px", height: rect.height + "px", cursor: "crosshair",
-  });
-}
-
-/**
- * Translate a click on the overlay canvas → face bounding-box hit test → selectFace().
- * If the hit face is still rendering, show a warning toast and do nothing.
- */
-function onOverlayClick(e) {
-  if (!state.faceAreas.length || state.busy || state.rerendering) return;
-  const rect   = clickOverlay.getBoundingClientRect();
-  const scaleX = state.dispW / rect.width;
-  const scaleY = state.dispH / rect.height;
-  const cx = (e.clientX - rect.left) * scaleX;
-  const cy = (e.clientY - rect.top)  * scaleY;
-  for (let i = 0; i < state.faceAreas.length; i++) {
-    const { x, y, w, h } = state.faceAreas[i];
-    if (cx >= x && cx <= x + w && cy >= y && cy <= y + h) {
-      if (!state.readySet.has(i)) {
-        showToast(`⏳ Face ${i+1} is still rendering — please wait`, 2500, true);
-        return;
-      }
-      selectFace(i);
-      return;
-    }
-  }
-}
-
-clickOverlay.addEventListener("click", onOverlayClick);
-window.addEventListener("resize", resizeOverlay);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // RENDER STATUS POLL LOOP
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Start polling /api/render_status every 1.5 seconds.
+ * Poll /api/render_status every 1.5 s.
  *
  * On each poll:
- *  • New frame data (returned only once per frame, never re-sent) is stored
- *    in state.frameCache and the corresponding dot is turned cyan.
- *  • The progress bar is advanced.
- *  • If the CURRENTLY DISPLAYED face's new frame arrives (during a re-render),
- *    the image is swapped immediately.
- *  • Polling stops automatically once all faces are rendered.
+ * 1. Ingest newly-ready frames: store frame_b64 + thumb_b64 in both caches,
+ *    add index to readySet, turn its dot cyan.
+ * 2. Mark in-progress faces with an orange-pulse dot.
+ * 3. Advance the progress bar.
+ * 4. KEY BEHAVIOUR: if the currently-displayed face's fresh frame arrives
+ *    (during a re-render cycle), swap the image + thumbnail immediately AND
+ *    clear state.rerendering so navigation unlocks right away.  Other faces
+ *    can still be rendering in the background — that's fine.
+ * 5. Stop polling only when ALL faces are done.
  */
 function startRenderPolling() {
-  stopRenderPolling();   // cancel any existing poll first
+  stopRenderPolling();
   state.pollIntervalId = setInterval(async () => {
     if (!state.sessionId) { stopRenderPolling(); return; }
     try {
       const data = await apiRenderStatus();
 
-      // Ingest any newly-ready frames
-      for (const [idxStr, frameb64] of Object.entries(data.frames || {})) {
+      // Ingest new frames — each face arrives at most once
+      for (const [idxStr, payload] of Object.entries(data.frames || {})) {
         const i = parseInt(idxStr, 10);
-        state.frameCache[i] = frameb64;
+        state.frameCache[i] = payload.frame_b64;
+        state.thumbCache[i] = payload.thumb_b64;
         state.readySet.add(i);
         updateDotState(i, "ready");
         if (i === state.currentIdx) setActiveDot(i);
+
+        // ── EARLY UNLOCK: current face just became ready during a re-render ──
+        // Swap to the new frame immediately and clear the rerendering flag so
+        // nav buttons unlock.  We don't wait for all other faces to finish.
+        if (i === state.currentIdx && state.rerendering) {
+          mainImg.src  = toDataUri(payload.frame_b64);
+          thumbImg.src = toDataUri(payload.thumb_b64);
+          rerenderOverlay.classList.remove("active");
+          state.rerendering = false;
+          displaySlider.classList.remove("rendering");
+          refreshNavButtons();
+        }
       }
 
-      // Mark frames currently being processed as "pending" (orange pulse)
+      // Update dots for faces currently being processed
       for (const i of (data.rendering_now || [])) {
         if (!state.readySet.has(i)) updateDotState(i, "rendering");
       }
 
       setRenderProgress(state.readySet.size, state.faceCount);
 
-      // If the current face's frame just arrived, swap to it (covers re-render case)
-      if (state.readySet.has(state.currentIdx)) {
-        const cached = state.frameCache[state.currentIdx];
-        if (cached && mainImg.src !== toDataUri(cached)) {
-          mainImg.src = toDataUri(cached);
-        }
-        rerenderOverlay.classList.remove("active");
-      }
-
-      // All done — stop polling and unlock the UI
+      // Stop when every face is done
       if (state.readySet.size >= state.faceCount) {
         stopRenderPolling();
         hideRenderProgress();
+        // Safety clear in case early-unlock somehow didn't fire
         state.rerendering = false;
         displaySlider.classList.remove("rendering");
         refreshNavButtons();
@@ -845,49 +859,45 @@ detectSlider.addEventListener("input", () => {
   detectVal.textContent = detectSlider.value;
 });
 
-/**
- * Display Max Px slider — live re-render (debounced 400 ms).
- *
- * While a session is active, stopping on a new value triggers
- * triggerDisplayPxRerender() which flushes the cache, shows the shimmer
- * overlay, calls /api/set_display_px, and restarts the poll loop.
- *
- * While re-rendering is in progress the slider is visually dimmed and
- * pointer-events disabled to prevent a second simultaneous request.
- */
 displaySlider.addEventListener("input", () => {
   state.displayMaxPx = parseInt(displaySlider.value, 10);
   displayVal.textContent = displaySlider.value;
-  if (!state.sessionId) return;    // no session yet — just store the value
+  if (!state.sessionId) return;  // no active session — just update the stored value
   clearTimeout(state.displayPxDebounceTimer);
   state.displayPxDebounceTimer = setTimeout(() => triggerDisplayPxRerender(state.displayMaxPx), 400);
 });
 
 /**
- * Full re-render cycle triggered by moving the Display Max Px slider.
+ * Re-render all frames at a new display resolution.
  *
- * 1. Lock slider + nav (state.rerendering = true).
- * 2. Show shimmer overlay over current image.
- * 3. Flush client-side frame cache + ready set (old resolution is stale).
- * 4. Reset dots to all-dark.
- * 5. Call /api/set_display_px — server rebuilds display at new resolution and
- *    immediately returns the current face's fresh frame.
- * 6. Show that frame immediately.
- * 7. Restart poll loop to pick up remaining frames.
+ * 1. Lock the display slider + set state.rerendering (blocks nav).
+ * 2. Show the shimmer overlay over the current image.
+ * 3. Flush client-side caches (stale resolution) and reset dots.
+ * 4. Call /api/set_display_px — server synchronously renders the current face
+ *    and returns it, then starts background rendering of the rest.
+ * 5. Show the current face's fresh frame right away.
+ * 6. Clear state.rerendering + unlock nav (current face is ready).
+ * 7. Start the poll loop for the remaining faces.
+ *
+ * Note: state.rerendering is cleared HERE (step 6) because /api/set_display_px
+ * returns the current face's frame synchronously.  The poll loop also clears
+ * it if the current face somehow arrives via polling instead.
  */
 async function triggerDisplayPxRerender(newPx) {
   if (!state.sessionId) return;
 
+  // Lock everything while waiting for the server to respond
   state.rerendering = true;
   displaySlider.classList.add("rendering");
   refreshNavButtons();
   rerenderOverlay.classList.add("active");
 
-  // Flush stale cache — these frames are at the old resolution
+  // Flush stale caches — old-resolution data is invalid
   state.frameCache = new Array(state.faceCount).fill(null);
+  state.thumbCache = new Array(state.faceCount).fill(null);
   state.readySet.clear();
-  buildFaceDots();           // reset all dots to dark/pending
-  stopRenderPolling();       // kill old poll so we don't ingest stale data
+  buildFaceDots();       // reset all dots to dark/pending
+  stopRenderPolling();   // kill old poll to avoid ingesting stale data
 
   showRenderProgress();
   setRenderProgress(0, state.faceCount);
@@ -896,28 +906,32 @@ async function triggerDisplayPxRerender(newPx) {
     const data = await apiSetDisplayPx(newPx);
     if (data.error) throw new Error(data.error);
 
-    // Update image dimensions for the new resolution
-    state.dispW = data.disp_w;
-    state.dispH = data.disp_h;
-
-    // Also update face_areas — bounding boxes shift at different resolutions
+    // Update display dimensions (they change at a different resolution)
+    state.dispW     = data.disp_w;
+    state.dispH     = data.disp_h;
     state.faceAreas = data.face_areas || state.faceAreas;
 
-    // The server returns the current face's frame immediately — show it now
+    // The server already rendered the current face — show it immediately
     if (data.current_frame_b64) {
       mainImg.src  = toDataUri(data.current_frame_b64);
       thumbImg.src = toDataUri(data.thumb_b64);
       state.frameCache[state.currentIdx] = data.current_frame_b64;
+      state.thumbCache[state.currentIdx] = data.thumb_b64;
       state.readySet.add(state.currentIdx);
       updateDotState(state.currentIdx, "ready");
       setActiveDot(state.currentIdx);
       rerenderOverlay.classList.remove("active");
       mainImg.onload = () => { resizeOverlay(); mainImg.onload = null; };
       setRenderProgress(1, state.faceCount);
+
+      // ── EARLY UNLOCK: current face is ready right now ─────────────────────
+      // Nav is unblocked immediately; remaining faces render in the background.
+      state.rerendering = false;
+      displaySlider.classList.remove("rendering");
+      refreshNavButtons();
     }
-    //Unlock selection
-    state.rerendering=false;
-    // Start polling for all remaining frames
+
+    // Start polling for the remaining faces
     startRenderPolling();
 
   } catch (err) {
@@ -963,25 +977,18 @@ btnConnect.addEventListener("click", async () => {
 // STEP 2 — UPLOAD
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Handle a file selection (picker or drag-and-drop).
- *
- * After a successful upload:
- *  1. Face 0's frame is shown immediately (returned by /api/upload).
- *  2. Face 0 is marked ready in the cache and its dot turns cyan.
- *  3. /api/render_all is called to queue background rendering of all frames.
- *  4. The status-poll loop starts.
- */
 async function handleFile(file) {
   if (!file || !file.type.startsWith("image/")) { showToast("⚠️ Please select a valid image file."); return; }
   if (!state.apiBase) { showToast("⚠️ Connect to the server first."); return; }
 
-  stopRenderPolling();   // cancel any poll from a previous image
+  stopRenderPolling();
   showUploadLoading("Uploading & detecting faces…");
+
   try {
     const data = await apiUpload(file);
     if (data.error) { showToast(`❌ ${data.error}`); return; }
 
+    // Initialise all state for the new image
     state.sessionId   = data.session_id;
     state.faceCount   = data.face_count;
     state.currentIdx  = 0;
@@ -990,9 +997,11 @@ async function handleFile(file) {
     state.faceAreas   = data.face_areas || [];
     state.rerendering = false;
 
-    // Pre-seed cache with face 0 (already rendered by the server during upload)
+    // Seed both caches with face 0 (pre-rendered by the server during upload)
     state.frameCache = new Array(data.face_count).fill(null);
+    state.thumbCache = new Array(data.face_count).fill(null);
     state.frameCache[0] = data.frame_b64;
+    state.thumbCache[0] = data.thumb_b64;
     state.readySet = new Set([0]);
 
     mainImg.src  = toDataUri(data.frame_b64);
@@ -1001,6 +1010,7 @@ async function handleFile(file) {
     refreshNavButtons();
 
     viewer.style.display = "block";
+    // resizeOverlay() after the image actually renders so dimensions are correct
     mainImg.onload = () => { resizeOverlay(); mainImg.onload = null; };
 
     buildFaceDots();
@@ -1013,8 +1023,8 @@ async function handleFile(file) {
     if (data.face_count > 1) {
       showRenderProgress();
       setRenderProgress(1, data.face_count);
-      await apiRenderAll();     // tell server to start rendering all other frames
-      startRenderPolling();     // begin polling for completions
+      await apiRenderAll();
+      startRenderPolling();
     } else {
       hideRenderProgress();
     }
@@ -1033,19 +1043,20 @@ dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("drag-ov
 dropZone.addEventListener("drop", (e) => { e.preventDefault(); dropZone.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 3a — FACE SELECTION (with client-side cache)
+// STEP 3a — FACE SELECTION (fully client-side cache, zero round-trips)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Switch the displayed face to *idx*.
+ * Switch to face *idx*.
  *
- * INSTANT PATH (cached):  state.frameCache[idx] is set → swap image src
- *   immediately, then call /api/select only for the thumbnail.
+ * INSTANT PATH: both frame and thumbnail are in the client cache.
+ *   → Swap img.src immediately.  No server call at all.
  *
- * GUARD PATH (not ready): warn the user and return without doing anything.
+ * NOT READY: face is still rendering on the server.
+ *   → Show a warning toast and do nothing.
  *
- * FALLBACK PATH: shouldn't normally happen (guarded by readySet check above),
- *   but falls back to a full /api/select call if needed.
+ * FALLBACK: in cache but thumbnail somehow missing — shouldn't happen since
+ *   the server always sends both together, but handled gracefully.
  */
 async function selectFace(idx) {
   if (state.busy || state.rerendering) return;
@@ -1056,27 +1067,34 @@ async function selectFace(idx) {
 
   state.busy = true;
   refreshNavButtons();
+
   try {
-    const cached = state.frameCache[idx];
-    if (cached) {
-      // Show cached frame instantly (no server round-trip for the main image)
-      mainImg.src = toDataUri(cached);
-      // Still fetch thumbnail from server (tiny, fast)
-      const data = await apiSelect(idx);
-      thumbImg.src = toDataUri(data.thumb_b64);
-      refreshCounter(data.confidence);
+    const cachedFrame = state.frameCache[idx];
+    const cachedThumb = state.thumbCache[idx];
+
+    if (cachedFrame && cachedThumb) {
+      // Fully instant — no network request whatsoever
+      mainImg.src  = toDataUri(cachedFrame);
+      thumbImg.src = toDataUri(cachedThumb);
+      // Confidence isn't cached separately; read it from a hidden data attr
+      // (not critical — just hide the conf display if unavailable)
+      refreshCounter(null);
     } else {
-      // Fallback — full round-trip
+      // Fallback: fetch from server (cache miss — shouldn't normally happen)
       const data = await apiSelect(idx);
       mainImg.src  = toDataUri(data.frame_b64);
       thumbImg.src = toDataUri(data.thumb_b64);
+      // Populate caches so the next visit is instant
       state.frameCache[idx] = data.frame_b64;
+      state.thumbCache[idx] = data.thumb_b64;
       state.readySet.add(idx);
       refreshCounter(data.confidence);
     }
+
     state.currentIdx = idx;
     setActiveDot(idx);
     dbNameRow.classList.remove("visible");
+
   } catch (err) {
     showToast(`❌ Select failed: ${err}`);
   } finally {
@@ -1085,7 +1103,6 @@ async function selectFace(idx) {
   }
 }
 
-/** Navigate to *target* only if its frame is ready; toast otherwise. */
 function navigateTo(target) {
   if (!state.readySet.has(target)) {
     showToast(`⏳ Face ${target + 1} is still rendering — please wait`, 2500, true);
@@ -1101,7 +1118,10 @@ btnNext.addEventListener("click", () => navigateTo((state.currentIdx + 1) % stat
 // STEP 3b — ADD TO DB
 // ─────────────────────────────────────────────────────────────────────────────
 
-btnAddDb.addEventListener("click", () => { dbNameRow.classList.toggle("visible"); if (dbNameRow.classList.contains("visible")) dbNameInput.focus(); });
+btnAddDb.addEventListener("click", () => {
+  dbNameRow.classList.toggle("visible");
+  if (dbNameRow.classList.contains("visible")) dbNameInput.focus();
+});
 btnCancelAdd.addEventListener("click", () => { dbNameRow.classList.remove("visible"); dbNameInput.value = ""; });
 
 async function confirmAddToDb() {
