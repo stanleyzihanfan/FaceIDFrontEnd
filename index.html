@@ -830,7 +830,17 @@ function startRenderPolling() {
 
       setRenderProgress(state.readySet.size, state.faceCount);
 
-      // Stop when every face is done
+      // If the current face's frame just arrived, swap to it (covers re-render case)
+      if (state.readySet.has(state.currentIdx)) {
+        const cached = state.frameCache[state.currentIdx];
+        if (cached && mainImg.src !== toDataUri(cached)) {
+          mainImg.src = toDataUri(cached);
+        }
+        rerenderOverlay.classList.remove("active");
+      }
+
+      // All done — stop polling and unlock the UI
+      alert(state.readySet.size);
       if (state.readySet.size >= state.faceCount) {
         stopRenderPolling();
         hideRenderProgress();
