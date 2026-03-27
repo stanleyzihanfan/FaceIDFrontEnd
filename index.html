@@ -780,20 +780,6 @@ async function apiSetDisplayPx(displayMaxPx) {
 // RENDER STATUS POLL LOOP
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Poll /api/render_status every 1.5 s.
- *
- * On each poll:
- * 1. Ingest newly-ready frames: store frame_b64 + thumb_b64 in both caches,
- *    add index to readySet, turn its dot cyan.
- * 2. Mark in-progress faces with an orange-pulse dot.
- * 3. Advance the progress bar.
- * 4. KEY BEHAVIOUR: if the currently-displayed face's fresh frame arrives
- *    (during a re-render cycle), swap the image + thumbnail immediately AND
- *    clear state.rerendering so navigation unlocks right away.  Other faces
- *    can still be rendering in the background — that's fine.
- * 5. Stop polling only when ALL faces are done.
- */
 function startRenderPolling() {
   stopRenderPolling();
   state.pollIntervalId = setInterval(async () => {
@@ -801,59 +787,26 @@ function startRenderPolling() {
     try {
       const data = await apiRenderStatus();
 
-      // ── Sync readySet from the server's authoritative ready list ──────────
-      // data.ready contains ALL indices that are done, not just new ones.
-      // We must use this — not state.readySet.size — for the stopping condition
-      // and progress bar, because data.frames only contains *newly delivered*
-      // frames (already-sent ones are omitted to save bandwidth).
       for (const i of (data.ready || [])) {
         if (!state.readySet.has(i)) {
-          // This face became ready but its image data was delivered in a prior
-          // poll and isn't re-sent.  Mark it ready so dots and readySet are
-          // consistent with the server, even if we don't have pixel data yet.
           state.readySet.add(i);
           updateDotState(i, "ready");
+          if (i === state.currentIdx) setActiveDot(i);
+          // Fetch this face's frame individually — small, non-blocking download
+          fetchFrameForFace(i);
         }
       }
 
-      // ── Ingest new frame+thumb data (delivered exactly once per face) ─────
-      for (const [idxStr, payload] of Object.entries(data.frames || {})) {
-        const i = parseInt(idxStr, 10);
-        state.frameCache[i] = payload.frame_b64;
-        state.thumbCache[i] = payload.thumb_b64;
-        // readySet.add(i) already done above via data.ready loop
-        updateDotState(i, "ready");
-        if (i === state.currentIdx) setActiveDot(i);
-
-        // ── EARLY UNLOCK: current face just became ready during a re-render ──
-        // Swap to the new frame immediately and clear the rerendering flag so
-        // nav buttons unlock.  We don't wait for all other faces to finish.
-        if (i === state.currentIdx && state.rerendering) {
-          mainImg.src  = toDataUri(payload.frame_b64);
-          thumbImg.src = toDataUri(payload.thumb_b64);
-          rerenderOverlay.classList.remove("active");
-          state.rerendering = false;
-          displaySlider.classList.remove("rendering");
-          refreshNavButtons();
-        }
-      }
-
-      // Update dots for faces currently being processed
       for (const i of (data.rendering_now || [])) {
         if (!state.readySet.has(i)) updateDotState(i, "rendering");
       }
 
-      // Use server's ready count, not local readySet.size, for the progress bar
-      // and stopping condition.  readySet.size would stay at 1 after the first
-      // frame's data has been delivered and removed from future data.frames.
       const serverReadyCount = (data.ready || []).length;
       setRenderProgress(serverReadyCount, state.faceCount);
 
-      // Stop when server confirms everything is done
       if (serverReadyCount >= state.faceCount) {
         stopRenderPolling();
         hideRenderProgress();
-        // Safety clear in case early-unlock somehow didn't fire
         state.rerendering = false;
         displaySlider.classList.remove("rendering");
         refreshNavButtons();
@@ -863,6 +816,32 @@ function startRenderPolling() {
       console.warn("Render-status poll error:", err);
     }
   }, 1500);
+}
+
+async function fetchFrameForFace(idx) {
+  try {
+    const r = await fetch(
+      `${state.apiBase}/api/get_frame?session_id=${encodeURIComponent(state.sessionId)}&face_index=${idx}`
+    );
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.frame_b64) return;
+
+    state.frameCache[idx] = data.frame_b64;
+    state.thumbCache[idx] = data.thumb_b64;
+
+    // If this is the current face during a re-render, swap it in immediately
+    if (idx === state.currentIdx && state.rerendering) {
+      mainImg.src  = toDataUri(data.frame_b64);
+      thumbImg.src = toDataUri(data.thumb_b64);
+      rerenderOverlay.classList.remove("active");
+      state.rerendering = false;
+      displaySlider.classList.remove("rendering");
+      refreshNavButtons();
+    }
+  } catch (err) {
+    console.warn(`fetchFrameForFace(${idx}) failed:`, err);
+  }
 }
 
 function stopRenderPolling() {
