@@ -1071,18 +1071,31 @@ async function selectFace(idx) {
     const cachedThumb = state.thumbCache[idx];
 
     if (cachedFrame && cachedThumb) {
-      // Fully instant — no network request whatsoever
-      mainImg.src  = toDataUri(cachedFrame);
-      thumbImg.src = toDataUri(cachedThumb);
-      // Confidence isn't cached separately; read it from a hidden data attr
-      // (not critical — just hide the conf display if unavailable)
+      // Set sources and wait for both images to load
+      await Promise.all([
+        new Promise(resolve => {
+          mainImg.onload = resolve;
+          mainImg.src = toDataUri(cachedFrame);
+        }),
+        new Promise(resolve => {
+          thumbImg.onload = resolve;
+          thumbImg.src = toDataUri(cachedThumb);
+        })
+      ]);
       refreshCounter(null);
     } else {
-      // Fallback: fetch from server (cache miss — shouldn't normally happen)
+      // Fallback: fetch from server
       const data = await apiSelect(idx);
-      mainImg.src  = toDataUri(data.frame_b64);
-      thumbImg.src = toDataUri(data.thumb_b64);
-      // Populate caches so the next visit is instant
+      await Promise.all([
+        new Promise(resolve => {
+          mainImg.onload = resolve;
+          mainImg.src = toDataUri(data.frame_b64);
+        }),
+        new Promise(resolve => {
+          thumbImg.onload = resolve;
+          thumbImg.src = toDataUri(data.thumb_b64);
+        })
+      ]);
       state.frameCache[idx] = data.frame_b64;
       state.thumbCache[idx] = data.thumb_b64;
       state.readySet.add(idx);
