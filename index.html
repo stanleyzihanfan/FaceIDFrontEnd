@@ -801,12 +801,27 @@ function startRenderPolling() {
     try {
       const data = await apiRenderStatus();
 
-      // Ingest new frames — each face arrives at most once
+      // ── Sync readySet from the server's authoritative ready list ──────────
+      // data.ready contains ALL indices that are done, not just new ones.
+      // We must use this — not state.readySet.size — for the stopping condition
+      // and progress bar, because data.frames only contains *newly delivered*
+      // frames (already-sent ones are omitted to save bandwidth).
+      for (const i of (data.ready || [])) {
+        if (!state.readySet.has(i)) {
+          // This face became ready but its image data was delivered in a prior
+          // poll and isn't re-sent.  Mark it ready so dots and readySet are
+          // consistent with the server, even if we don't have pixel data yet.
+          state.readySet.add(i);
+          updateDotState(i, "ready");
+        }
+      }
+
+      // ── Ingest new frame+thumb data (delivered exactly once per face) ─────
       for (const [idxStr, payload] of Object.entries(data.frames || {})) {
         const i = parseInt(idxStr, 10);
         state.frameCache[i] = payload.frame_b64;
         state.thumbCache[i] = payload.thumb_b64;
-        state.readySet.add(i);
+        // readySet.add(i) already done above via data.ready loop
         updateDotState(i, "ready");
         if (i === state.currentIdx) setActiveDot(i);
 
@@ -828,20 +843,14 @@ function startRenderPolling() {
         if (!state.readySet.has(i)) updateDotState(i, "rendering");
       }
 
-      setRenderProgress(state.readySet.size, state.faceCount);
+      // Use server's ready count, not local readySet.size, for the progress bar
+      // and stopping condition.  readySet.size would stay at 1 after the first
+      // frame's data has been delivered and removed from future data.frames.
+      const serverReadyCount = (data.ready || []).length;
+      setRenderProgress(serverReadyCount, state.faceCount);
 
-      // If the current face's frame just arrived, swap to it (covers re-render case)
-      if (state.readySet.has(state.currentIdx)) {
-        const cached = state.frameCache[state.currentIdx];
-        if (cached && mainImg.src !== toDataUri(cached)) {
-          mainImg.src = toDataUri(cached);
-        }
-        rerenderOverlay.classList.remove("active");
-      }
-
-      // All done — stop polling and unlock the UI
-      alert(state.readySet.size);
-      if (state.readySet.size >= state.faceCount) {
+      // Stop when server confirms everything is done
+      if (serverReadyCount >= state.faceCount) {
         stopRenderPolling();
         hideRenderProgress();
         // Safety clear in case early-unlock somehow didn't fire
